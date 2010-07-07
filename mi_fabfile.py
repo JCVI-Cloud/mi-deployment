@@ -75,7 +75,7 @@ def _make_tmp_dir():
     work_dir = os.path.join(env.tmp_dir, "tmp")
     if not exists(work_dir):
         sudo("mkdir %s" % work_dir)
-        sudo("chown ubuntu %s" % work_dir)
+        sudo("chown %s %s" % (env.user, work_dir))
     yield work_dir
     if exists(work_dir):
         sudo("rm -rf %s" % work_dir)
@@ -114,7 +114,7 @@ def _update_system():
 
 def _required_packages():
     """Install needed packages using apt-get"""
-    packages = ['xfsprogs', 'unzip', 'gcc', 'g++', 'nfs-kernel-server', 'zlib1g-dev', 'libssl-dev', 'libpcre3-dev', 'libreadline5-dev', 'rabbitmq-server', 'mercurial', 'subversion'] # Pull from outside (e.g., yaml file)?
+    packages = ['stow', 'xfsprogs', 'unzip', 'gcc', 'g++', 'nfs-kernel-server', 'zlib1g-dev', 'libssl-dev', 'libpcre3-dev', 'libreadline5-dev', 'rabbitmq-server', 'mercurial', 'subversion'] # Pull from outside (e.g., yaml file)?
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
 
@@ -129,7 +129,7 @@ def _add_user(username):
     """ Add user with username to the system """
     if not contains(username, '/etc/passwd'):
         print "User '%s' not found, adding it now" % username
-        sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy user" %s' % (username, username))
+        sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" %s' % (username, username))
         print "Added user '%s'" % username
         
 # == required programs
@@ -138,9 +138,8 @@ def _required_programs():
     """ Install required programs """
     if not exists(env.install_dir):
         sudo("mkdir -p %s" % env.install_dir)
-        sudo("chown ubuntu %s" % env.install_dir)
+        sudo("chown %s %s" % (env.user, env.install_dir))
 
-    _install_stow() # Convenience tool
     # Setup global environment for all users
     install_dir = os.path.split(env.install_dir)[0]
     append("export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir), '/etc/bash.bashrc', use_sudo=True)
@@ -149,21 +148,6 @@ def _required_programs():
     _install_nginx()
     _install_postgresql()
     _install_setuptools()
-
-@_if_not_installed("stow")
-def _install_stow():
-    version = "1.3.3"
-    url = "http://mirrors.ibiblio.org/pub/mirrors/gnu/ftp/gnu/stow/stow-%s.tar.gz" % version
-    install_dir = os.path.join(env.install_dir, "stow")
-    with _make_tmp_dir() as work_dir:
-        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
-            run("wget %s" % url)
-            run("tar xvzf %s" % os.path.split(url)[1])
-            with cd("stow-%s" % version):
-                run("./configure")
-                run("make")
-                sudo("make install")
-                print "----- stow installed -----"
     
 # @_if_not_installed("nginx") # FIXME: this call is actually going to start nginx and never return...
 def _install_nginx():
@@ -174,7 +158,7 @@ def _install_nginx():
         with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
             run("wget %s" % url)
             # Maybe this can be untared to tmp dir and removed after installation?
-            sudo("chown ubuntu %s" % install_dir)
+            sudo("chown %s %s" % (env.user, install_dir))
             run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
             print "----- nginx upload module downloaded and extracted to '%s' -----" % install_dir
     
