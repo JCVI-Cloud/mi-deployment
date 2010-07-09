@@ -114,7 +114,19 @@ def _update_system():
 
 def _required_packages():
     """Install needed packages using apt-get"""
-    packages = ['stow', 'xfsprogs', 'unzip', 'gcc', 'g++', 'nfs-kernel-server', 'zlib1g-dev', 'libssl-dev', 'libpcre3-dev', 'libreadline5-dev', 'rabbitmq-server', 'mercurial', 'subversion'] # Pull from outside (e.g., yaml file)?
+    packages = ['stow', 
+                'xfsprogs', 
+                'unzip', 
+                'gcc', 
+                'g++', 
+                'nfs-kernel-server', 
+                'zlib1g-dev', 
+                'libssl-dev', 
+                'libpcre3-dev', 
+                'libreadline5-dev', 
+                'rabbitmq-server', 
+                'mercurial', 
+                'subversion'] # Pull from outside (e.g., yaml file)?
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
 
