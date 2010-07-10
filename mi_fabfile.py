@@ -370,12 +370,17 @@ def update_galaxy_code():
             snap_id = _create_snapshot(ec2_conn, galaxy_tools_vol.id, desc)
             print "--------------------------"
             print "New snapshot ID: %s" % snap_id
-            print "Don't forget to update the file 'snaps-latest.txt' in 'galaxy-snapshots' bucket on S3 with the following line:"
-            print "TOOLS=%s|%s" % (snap_id, str(galaxy_tools_vol.size))
+            # print "Don't forget to update the file 'snaps-latest.txt' in 'galaxy-snapshots' bucket on S3 with the following line:"
+            # print "TOOLS=%s|%s" % (snap_id, str(galaxy_tools_vol.size))
             print "--------------------------"
+            answer = confirm("Would you like to update the file 'snaps-latest.txt' in 'galaxy-snapshots' bucket on S3 with the following line: 'TOOLS=%s|%s'" % (snap_id, str(galaxy_tools_vol.size)))
+            if answer:
+                _update_snaps_latest_file(snap_id, galaxy_tools_vol.size)
+            
             answer = confirm("Would you like to make the newly created snapshot '%s' public?" % snap_id)
             if answer:
                 ec2_conn.modify_snapshot_attribute(snap_id, attribute='createVolumePermission', operation='add', groups=['all'])
+            
             answer = confirm("Would you like to attach the volume '%s' used to make the new snapshot back to instance '%s' and mount it?" % (galaxy_tools_vol.id, instance_id))
             if answer:
                 _attach(ec2_conn, instance_id, galaxy_tools_vol.id, device_id)
@@ -398,6 +403,45 @@ def _start_galaxy():
     answer = confirm("Would you like to start Galaxy on instance '%s'?" % instance_id)
     if answer:
         sudo('su galaxy -c "source /etc/bash.bashrc; source /home/galaxy/.bash_profile; export SGE_ROOT=/opt/sge; cd /mnt/galaxyTools/galaxy-central; sh run.sh --daemon"')
+
+def _update_snaps_latest_file(snap_id, vol_size):
+    bucket_name = 'galaxy-snapshots'
+    remote_file_name = 'snaps-latest.txt'
+    remote_url = 'http://s3.amazonaws.com/%s/%s' % (bucket_name, remote_file_name)
+    downloaded_local_file = "downloaded_snaps-latest.txt"
+    generated_local_file = "snaps-latest.txt"
+    urllib.urlretrieve(remote_url, downloaded_local_file)
+    local("sed 's/^TOOLS.*/TOOLS=%s|%s/ %s > %s" % (snap_id, vol_size, downloaded_local_file, generated_local_file))
+
+    return _save_file_to_bucket(s3_conn, remote_file_name, generated_local_file)
+    
+def _save_file_to_bucket( bucket_name, remote_filename, local_file ):
+    # print "Establishing handle with bucket '%s'..." % bucket_name
+    s3_conn = S3Connection()
+    b = None
+    for i in range(0, 5):
+		try:
+			b = s3_conn.get_bucket( bucket_name )
+			break
+		except S3ResponseError, e: 
+			print "Bucket '%s' not found, attempt %s/5" % ( bucket_name, i )
+	    	
+    if b is not None:
+        # print "Establishing handle with key object '%s'..." % remote_filename
+		k = Key( b, remote_filename )
+		print "Attempting to save file '%s' to bucket '%s'..." % (remote_filename, bucket_name)
+		try:
+		    k.set_contents_from_filename( local_file )
+		    print "Successfully saved file '%s' to bucket '%s'." % ( remote_filename, bucket_name )
+		    # Store some metadata (key-value pairs) about the contents of the file being uploaded
+		    k.set_metadata('date_uploaded', dt.datetime.utcnow())
+		except S3ResponseError, e:
+		     print "Failed to save file local file '%s' to bucket '%s' as file '%s': %s" % ( local_file, bucket_name, remote_filename, e )
+		     return False
+		    
+		return True
+    else:
+		return False
     
 # == Machine image rebundling code
 
