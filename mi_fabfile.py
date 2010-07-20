@@ -37,7 +37,16 @@ env.use_sudo = True
 sge_request = """
 -b no
 -shell yes
--v PATH=/opt/sge/bin/lx24-amd64:/opt/galaxy/bin:/mnt/galaxyTools/tools/bin:/mnt/galaxyTools/tools/pkg/fastx_toolkit_0.0.13:/mnt/galaxyTools/tools/pkg/bowtie-0.12.5:/mnt/galaxyTools/tools/pkg/samtools-0.1.7_x86_64-linux:/mnt/galaxyTools/tools/pkg/gnuplot-4.4.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games
+-v PATH=/opt/sge/bin/lx24-amd64:/opt/galaxy/bin:/mnt/galaxyTools/tools/bin:/mnt/galaxyTools/tools/pkg/fastx_toolkit_0.0.13:/mnt/galaxyTools/tools/pkg/bowtie-0.12.5:/mnt/galaxyTools/tools/pkg/samtools-0.1.7_x86_64-linux:/mnt/galaxyTools/tools/pkg/gnuplot-4.4.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+"""
+
+cm_upstart = """
+description     "Start CloudMan contextualization script"
+
+start on runlevel [2345]
+
+task
+exec python %s/ec2autorun.py
 """
 
 # == Decorators and context managers
@@ -124,7 +133,8 @@ def _required_packages():
                 'libssl-dev', 
                 'libpcre3-dev', 
                 'libreadline5-dev', 
-                'rabbitmq-server', 
+                'rabbitmq-server',
+                'git-core',
                 'mercurial', 
                 'subversion'] # Pull from outside (e.g., yaml file)?
     for package in packages:
@@ -157,9 +167,20 @@ def _required_programs():
     append("export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir), '/etc/bash.bashrc', use_sudo=True)
     append("export LD_LIBRARY_PATH=%s/lib" % install_dir, '/etc/bash.bashrc', use_sudo=True)
     # Install required programs
+    _get_sge()
     _install_nginx()
     _install_postgresql()
     _install_setuptools()
+    
+def _get_sge():
+    url = "http://userwww.service.emory.edu/~eafgan/content/ge62u5_lx24-amd64.tar.gz"
+    install_dir = env.install_dir
+    with _make_tmp_dir() as work_dir:
+        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+            run("wget %s" % url)
+            sudo("chown %s %s" % (env.user, install_dir))
+            run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
+            print "----- SGE downloaded and extracted to '%s' -----" % install_dir
     
 # @_if_not_installed("nginx") # FIXME: this call is actually going to start nginx and never return...
 def _install_nginx():
@@ -240,7 +261,7 @@ def _install_setuptools():
 def _required_libraries():
     """Install pyhton libraries"""
     # Libraries to be be installed using easy_install
-    libraries = ['simplejson', 'amqplib']
+    libraries = ['simplejson', 'amqplib', 'pyyaml']
     for library in libraries:
         sudo("easy_install %s" % library)
         
@@ -250,7 +271,7 @@ def _required_libraries():
 def _install_boto():
     install_dir = env.install_dir + "/boto"
     with contextlib.nested(cd(env.install_dir), settings(hide('stdout'))):
-        sudo("svn checkout http://boto.googlecode.com/svn/trunk/ boto")
+        sudo("git clone http://github.com/boto/boto.git")
         with cd(install_dir):
             sudo("python setup.py install")
             print("----- boto installed -----")
@@ -259,19 +280,31 @@ def _install_boto():
 
 def _configure_environment():
     _configure_ec2_autorun()
-    # _clean_rabbitmq_env()
+    _clean_rabbitmq_env()
     _configure_sge()
     _confifgure_galaxy_env()
     _configure_nfs()
     _configure_bash()
     
 def _configure_ec2_autorun():
-    url = "http://userwww.service.emory.edu/~eafgan/content/ec2autorun"
-    with cd("/etc/init.d"):
+    # url = "http://userwww.service.emory.edu/~eafgan/content/ec2autorun"
+    # with cd("/etc/init.d"):
+    #     sudo("wget %s" % url)
+    #     sudo("chmod u+x %s" % os.path.split(url)[1])
+    #     sudo("update-rc.d %s defaults 80 15" % os.path.split(url)[1])
+    #     print "----- ec2_autorun added -----"
+    url = "http://userwww.service.emory.edu/~eafgan/content/ec2autorun.py"
+    with cd(env.install_dir):
         sudo("wget %s" % url)
-        sudo("chmod u+x %s" % os.path.split(url)[1])
-        sudo("update-rc.d %s defaults 80 15" % os.path.split(url)[1])
-        print "----- ec2_autorun added -----"
+    # Create upstart configuration file for boot-time script
+    cloudman_boot_file = 'cloudman.conf'
+    f = open( cloudman_boot_file, 'w' )
+    print >> f, cm_upstart % env.install_dir
+    f.close()
+    put(cloudman_boot_file, '/tmp/%s' % cloudman_boot_file) # Because of permissions issue
+    sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (cloudman_boot_file, cloudman_boot_file, cloudman_boot_file))
+    os.remove(cloudman_boot_file)
+    print "----- ec2_autorun added to upstart -----"
 
 def _clean_rabbitmq_env():
     """
@@ -530,9 +563,12 @@ def rebundle():
                     block_map[ephemeral0_device_name] = ephemeral0
                     block_map[ephemeral1_device_name] = ephemeral1
                     image_id = ec2_conn.register_image(name, description="Base Galaxy on Ubuntu 10.04", architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
+                    answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
+                    if answer:
+                        ec2_conn.delete_volume(vol.id)
                     print "--------------------------"
                     print "Finished creating new machine image. Image ID: '%s'" % (image_id)
-                    print "MAKE SURE to uplaod a new contextualization script to the 'ssfg' bucket on S3 named 'customizeEC2instance_%s.zip' AND give it read permission for everyone." % image_id
+                    print "MAKE SURE to upload a new contextualization script to the 'ssfg' bucket on S3 named 'customizeEC2instance_%s.zip' AND (if this AMI is to be made public) give it read permission for everyone." % image_id
                     print "--------------------------"
                     answer = confirm("Would you like to make this machine image public?", default=False)
                     if image_id and answer:
