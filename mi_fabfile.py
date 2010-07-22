@@ -486,6 +486,10 @@ def rebundle():
     and the desired size of the root volume for the new instance.  
      
     TODO: Customization: /usr/bin/landscape-sysinfo, /etc/update-motd.d/
+    :rtype: bool
+    :return: If instance was successfully rebundled and an AMI ID was received,
+             return True.
+             False, otherwise.
     """
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
@@ -502,8 +506,10 @@ def rebundle():
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         
         # Handle reboot if required
-        _reboot(ec2_conn, instance_id)
+        if _reboot(ec2_conn, instance_id):
+            return False # Indicates that rebundling was not completed
         
+        image_id = None
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
         if instance_id and availability_zone and kernel_id:
@@ -584,13 +590,24 @@ def rebundle():
             return False            
     else:
         print "Python boto library not available. Aborting."
+        return False
     time_end = dt.datetime.utcnow()
     print "Duration of instance rebundling: %s" % str(time_end-time_start)
+    if image_id is not None:
+        return True
+    else:
+        return False
 
 def _reboot(ec2_conn, instance_id, force=False):
     """
     Reboot current instance if required. Reboot can be forced by setting the 
     method's 'force' parameter to True.
+    
+    :rtype: bool
+    :return: If instance was rebooted, return True. Note that this primarily 
+             indicates if the instance was rebooted and does not guarantee that 
+             the instance is accessible.
+             False, otherwise.
     """
     if force or exists("/var/run/reboot-required"):
         answer = confirm("Before rebundling, instance '%s' needs to be rebooted and this script invoked again. Reboot instance?" % instance_id)
@@ -608,19 +625,17 @@ def _reboot(ec2_conn, instance_id, force=False):
                         # FIXME: Need a better method of determining if the instance is available yet
                         ssh = local('ssh -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
                     if ssh.return_code == 0:
-                        print "--------------------------"
+                        print "\n--------------------------"
                         print "Machine '%s' is alive" % env.hosts[0]
-                        print "This script will exit now. Invoke it again passing method name 'rebundle' as the last argument to the fab script."
-                        print "--------------------------"
-                        time_end = dt.datetime.utcnow()
-                        print "Script existing at time %s" % str(time_end)
-                        sys.exit(0)
+                        print "This script will exit now. Invoke it again while passing method name 'rebundle' as the last argument to the fab script."
+                        print "--------------------------\n"
+                        return True
                     else:
                         print "Still waiting..."
                         time.sleep(3)
                     if i == 29:
                         print "Machine '%s' did not respond for while now, aborting" % env.hosts[0]
-                        return False
+                        return True
             except EC2ResponseError, e:
                 print("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e))
                 return False
