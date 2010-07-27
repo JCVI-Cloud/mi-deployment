@@ -282,7 +282,7 @@ def _configure_environment():
     _configure_ec2_autorun()
     _clean_rabbitmq_env()
     _configure_sge()
-    _confifgure_galaxy_env()
+    _configure_galaxy_env()
     _configure_nfs()
     _configure_bash()
     
@@ -322,7 +322,7 @@ def _configure_sge():
         sudo("mkdir -p %s" % sge_root)
         sudo("chown sgeadmin:sgeadmin %s" % sge_root)
 
-def _confifgure_galaxy_env():
+def _configure_galaxy_env():
     # Edit the galaxy user .bash_profile in a somewhat roundabout way
     append('export TEMP=/mnt/galaxyData/tmp', '/home/galaxy/.bash_profile', use_sudo=True)
     sudo('chown galaxy:galaxy /home/galaxy/.bash_profile')
@@ -500,7 +500,7 @@ def rebundle():
         # AWS_SECRET_ACCESS_KEY - Your AWS Secret Access Key
         # ec2_conn = EC2Connection('<aws access key>', '<aws secret key>')
         ec2_conn = EC2Connection()
-        vol_size = 2 # This will be the size (in GB) of the root partition of the new image
+        vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
         hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
@@ -541,6 +541,9 @@ def rebundle():
                         sudo('./%s' % os.path.split(url)[1])
                     # Detach the new volume
                     _detach(ec2_conn, instance_id, vol.id)
+                    answer = confirm("Would you like to terminate the instance used during rebundling?", default=False)
+                    if answer:
+                        ec2_conn.terminate_instances([instance_id])
                     # Create a snapshot of the new volume
                     name = 'galaxy-cloud-%s' % time_start.strftime("%Y-%m-%d")
                     snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: %s" % name)
