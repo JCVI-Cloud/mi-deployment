@@ -33,6 +33,8 @@ env.galaxy_files = '/mnt/galaxy'
 env.shell = "/bin/bash -l -c"
 env.use_sudo = True
 
+AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
+
 # == Templates
 sge_request = """
 -b no
@@ -136,7 +138,8 @@ def _required_packages():
                 'rabbitmq-server',
                 'git-core',
                 'mercurial', 
-                'subversion'] # Pull from outside (e.g., yaml file)?
+                'subversion',
+                'postgresql'] # Pull from outside (e.g., yaml file)?
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
 
@@ -169,7 +172,8 @@ def _required_programs():
     # Install required programs
     _get_sge()
     _install_nginx()
-    _install_postgresql()
+    # _install_postgresql()
+    _configure_postgresql()
     _install_setuptools()
     
 def _get_sge():
@@ -244,6 +248,21 @@ def _install_postgresql():
                 sudo("make install")
                 sudo("cd %s; stow postgresql" % env.install_dir)
                 print "----- PostgreSQL installed -----"
+                
+def _configure_postgresql():
+    """ This method is intended for cleaning up the installation when
+    PostgreSQL is installed from a package. Basically, when PostgreSQL 
+    is installed from a package, it creates a default database cluster 
+    and splits the config file away from the data. 
+    This method deletes the default database cluster automatically created 
+    when the package is installed and adds all of the PostgreSQL commands
+    to the PATH. Deleting the main database cluster also has the effect
+    of stopping the autostart of the postmaster server at machine boot. 
+    """
+    pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d' ' | cut -f1 -d'-' | cut -f1-2 -d'.'")
+    sudo('su postgres -c"pg_dropcluster --stop %s main"' % pg_ver)
+    append("export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver, "/etc/bash.bashrc", use_sudo=True)
+    print "----- PostgreSQL configured -----"
     
 @_if_not_installed("easy_install")
 def _install_setuptools():
@@ -571,7 +590,7 @@ def rebundle():
                     block_map[root_device_name] = ebs
                     block_map[ephemeral0_device_name] = ephemeral0
                     block_map[ephemeral1_device_name] = ephemeral1
-                    image_id = ec2_conn.register_image(name, description="Base Galaxy on Ubuntu 10.04", architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
+                    image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
                     if answer:
                         ec2_conn.delete_volume(vol.id)
