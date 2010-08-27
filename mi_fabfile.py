@@ -249,18 +249,19 @@ def _install_postgresql():
                 sudo("cd %s; stow postgresql" % env.install_dir)
                 print "----- PostgreSQL installed -----"
                 
-def _configure_postgresql():
+def _configure_postgresql(delete_main_dbcluster=False):
     """ This method is intended for cleaning up the installation when
     PostgreSQL is installed from a package. Basically, when PostgreSQL 
     is installed from a package, it creates a default database cluster 
     and splits the config file away from the data. 
-    This method deletes the default database cluster automatically created 
-    when the package is installed and adds all of the PostgreSQL commands
-    to the PATH. Deleting the main database cluster also has the effect
-    of stopping the autostart of the postmaster server at machine boot. 
+    This method can delete the default database cluster that was automatically
+    created when the package is installed. Deleting the main database cluster 
+    also has the effect of stopping the autostart of the postmaster server at 
+    machine boot. The method adds all of the PostgreSQL commands to the PATH.
     """
     pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d' ' | cut -f1 -d'-' | cut -f1-2 -d'.'")
-    sudo('su postgres -c"pg_dropcluster --stop %s main"' % pg_ver)
+    if delete_main_dbcluster:
+        sudo('su postgres -c"pg_dropcluster --stop %s main"' % pg_ver)
     append("export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver, "/etc/bash.bashrc", use_sudo=True)
     print "----- PostgreSQL configured -----"
     
