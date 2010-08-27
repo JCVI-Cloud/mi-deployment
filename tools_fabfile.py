@@ -113,6 +113,7 @@ def _install_ngs_tools():
     # _install_fastx_toolkit()
     _install_maq()
     _install_bfast()
+    _install_abyss()
     if env.install_ucsc:
         _install_ucsc_tools()
 
@@ -256,6 +257,20 @@ def _install_bfast():
                 run("make")
                 install_cmd("make install")
 
+@_if_not_installed("ABYSS")
+def _install_abyss():
+    version = "1.2.2"
+    url = "http://www.bcgsc.ca/downloads/abyss/abyss-%s.tar.gz" % version
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % (url))
+            run("tar -xvzf %s" % (os.path.split(url)[-1]))
+            install_cmd = sudo if env.use_sudo else run
+            with cd("abyss-%s" % version):
+                run("./configure --prefix=%s --with-mpi=/opt/galaxy/pkg/openmpi" % env.install_dir)
+                run("make")
+                install_cmd("make install")
+    
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
     """

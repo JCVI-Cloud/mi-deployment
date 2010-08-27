@@ -7,7 +7,7 @@ a remote server.
 Usage:
     fab -f mi_fabfile.py -H servername -i full_path_to_private_key_file <configure_MI | rebundle | update_galaxy_code>
 """
-import os, sys, time, subprocess, contextlib
+import os, time, contextlib
 import datetime as dt
 from contextlib import contextmanager
 try:
@@ -31,7 +31,7 @@ env.install_dir = '/opt/galaxy/pkg'
 env.tmp_dir = "/mnt"
 env.galaxy_files = '/mnt/galaxy'
 env.shell = "/bin/bash -l -c"
-env.use_sudo = True
+env.use_sudo = True 
 
 AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
 
@@ -50,10 +50,10 @@ start on runlevel [2345]
 task
 exec python %s/ec2autorun.py
 """
-
+ 
 # == Decorators and context managers
 
-def _if_not_installed(pname):
+def _if_not_installed(pname): 
     def argcatcher(func):
         def decorator(*args, **kwargs):
             # with settings(hide('warnings', 'running', 'stdout', 'stderr'),
@@ -106,7 +106,7 @@ def configure_MI():
     _setup_users()
     _required_programs()
     _required_libraries()
-    _configure_environment()
+    _configure_environment() 
     answer = confirm("Would you like to bundle this instance into a new machine image?", default=False)
     if answer:
         rebundle()
@@ -139,7 +139,8 @@ def _required_packages():
                 'git-core',
                 'mercurial', 
                 'subversion',
-                'postgresql'] # Pull from outside (e.g., yaml file)?
+                'postgresql',
+                'libsparsehash-dev' ] # Pull from outside (e.g., yaml file)?
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
 
@@ -175,6 +176,7 @@ def _required_programs():
     # _install_postgresql()
     _configure_postgresql()
     _install_setuptools()
+    _install_openmpi()
     
 def _get_sge():
     url = "http://userwww.service.emory.edu/~eafgan/content/ge62u5_lx24-amd64.tar.gz"
@@ -276,6 +278,22 @@ def _install_setuptools():
             sudo("sh %s" % os.path.split(url)[1].split('#')[0])
             print "----- setuptools installed -----"
 
+def _install_openmpi():
+    version = "1.4.2"
+    url = "http://www.open-mpi.org/software/ompi/v1.4/downloads/openmpi-%s.tar.gz" % version
+    install_dir = os.path.join(env.install_dir, "openmpi")
+    with _make_tmp_dir() as work_dir:
+        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+            run("wget %s" % url)
+            run("tar xvzf %s" % os.path.split(url)[1])
+            with cd("openmpi-%s" % version):
+                run("./configure --prefix=%s --with-sge" % install_dir)
+                with settings(hide('stdout')):
+                    print "Making OpenMPI..."
+                    sudo("make all install")
+                    append("export PATH=/%s/bin:$PATH" % install_path, "/etc/bash.bashrc", use_sudo=True)
+                print "----- OpenMPI installed to %s -----" % install_dir
+    
 # == libraries
  
 def _required_libraries():
@@ -402,7 +420,7 @@ def update_galaxy_code():
         # ec2_conn = EC2Connection('<aws access key>', '<aws secret key>')
         ec2_conn = EC2Connection()
         
-        hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
+        # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         # In lack of a better method... ask the user
         # vol_id = raw_input("What is the volume ID where Galaxy is stored (should be the one attached as device /dev/sdg)? ")
@@ -522,7 +540,7 @@ def rebundle():
         ec2_conn = EC2Connection()
         vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
-        hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
+        # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         
         # Handle reboot if required
@@ -581,12 +599,12 @@ def rebundle():
                     ephemeral1_device_name = '/dev/sdc'
                     ephemeral1 = BlockDeviceType()
                     ephemeral1.ephemeral_name = 'ephemeral1'
-                    ephemeral2_device_name = '/dev/sdd'
-                    ephemeral2 = BlockDeviceType()
-                    ephemeral2.ephemeral_name = 'ephemeral2'
-                    ephemeral3_device_name = '/dev/sde'
-                    ephemeral3 = BlockDeviceType()
-                    ephemeral3.ephemeral_name = 'ephemeral3'
+                    # ephemeral2_device_name = '/dev/sdd' # Needed for instances w/ 3 ephemeral disks
+                    # ephemeral2 = BlockDeviceType()
+                    # ephemeral2.ephemeral_name = 'ephemeral2'
+                    # ephemeral3_device_name = '/dev/sde' # Needed for instances w/ 4 ephemeral disks
+                    # ephemeral3 = BlockDeviceType()
+                    # ephemeral3.ephemeral_name = 'ephemeral3'
                     block_map = BlockDeviceMapping()
                     block_map[root_device_name] = ebs
                     block_map[ephemeral0_device_name] = ephemeral0
