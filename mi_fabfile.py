@@ -7,13 +7,15 @@ a remote server.
 Usage:
     fab -f mi_fabfile.py -H servername -i full_path_to_private_key_file <configure_MI | rebundle | update_galaxy_code>
 """
-import os, time, contextlib
+import os, time, contextlib, urllib
 import datetime as dt
 from contextlib import contextmanager
 try:
     boto = __import__("boto")
     from boto.ec2.connection import EC2Connection
-    from boto.exception import EC2ResponseError
+    from boto.s3.connection import S3Connection
+    from boto.s3.key import Key
+    from boto.exception import EC2ResponseError, S3ResponseError
     from boto.ec2.blockdevicemapping import BlockDeviceType, BlockDeviceMapping
 except:
     boto = None
@@ -140,6 +142,7 @@ def _required_packages():
                 'mercurial', 
                 'subversion',
                 'postgresql',
+                'gfortran',
                 'libsparsehash-dev' ] # Pull from outside (e.g., yaml file)?
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
@@ -291,7 +294,7 @@ def _install_openmpi():
                 with settings(hide('stdout')):
                     print "Making OpenMPI..."
                     sudo("make all install")
-                    append("export PATH=/%s/bin:$PATH" % install_path, "/etc/bash.bashrc", use_sudo=True)
+                    append("export PATH=/%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
                 print "----- OpenMPI installed to %s -----" % install_dir
     
 # == libraries
@@ -399,6 +402,10 @@ def update_galaxy_code():
     # Because of a conflict in static/welcome.html file on cloud Galaxy and the
     # main Galaxy repository, force local change to persist in case of a merge
     sudo('su galaxy -c "cd %s; hg --config ui.merge=internal:local pull --update"' % galaxy_home)
+    commit_num = sudo('su galaxy -c "cd %s; hg tip | grep changeset | cut -d: -f2 "' % galaxy_home).strip()
+    # A vanilla datatypes_conf is used so to make sure it's up to date delete it; setup.sh will recreate it.
+    sudo('cd %s; rm datatypes_conf.xml' % galaxy_home)
+    sudo('su galaxy -c "cd %s; sh setup.sh"' % galaxy_home)
     sudo('su galaxy -c "cd %s; sh manage_db.sh upgrade"' % galaxy_home)
 
     # Clean up galaxy directory before snapshoting
@@ -437,7 +444,7 @@ def update_galaxy_code():
         if galaxy_tools_vol:
             sudo("umount %s" % os.path.split(galaxy_home)[0])
             _detach(ec2_conn, instance_id, galaxy_tools_vol.id)
-            desc = "Galaxy and tools"
+            desc = "Galaxy (at commit %s) and tools" % commit_num
             snap_id = _create_snapshot(ec2_conn, galaxy_tools_vol.id, desc)
             print "--------------------------"
             print "New snapshot ID: %s" % snap_id
@@ -446,18 +453,18 @@ def update_galaxy_code():
             print "--------------------------"
             answer = confirm("Would you like to update the file 'snaps-latest.txt' in 'galaxy-snapshots' bucket on S3 with the following line: 'TOOLS=%s|%s'" % (snap_id, str(galaxy_tools_vol.size)))
             if answer:
-                _update_snaps_latest_file(snap_id, galaxy_tools_vol.size)
+                _update_snaps_latest_file(snap_id, galaxy_tools_vol.size, commit_num='Galaxy at commit %s' % commit_num)
             
-            answer = confirm("Would you like to make the newly created snapshot '%s' public?" % snap_id)
+            answer = confirm("Would you like to make the newly created snapshot '%s' public (you should if snaps-latest.txt in the previous question was updated)?" % snap_id)
             if answer:
                 ec2_conn.modify_snapshot_attribute(snap_id, attribute='createVolumePermission', operation='add', groups=['all'])
             
-            answer = confirm("Would you like to attach the volume '%s' used to make the new snapshot back to instance '%s' and mount it?" % (galaxy_tools_vol.id, instance_id))
+            answer = confirm("Would you like to attach the *old* volume '%s' (but with updated Galaxy) used to make the new snapshot back to instance '%s' and mount it?" % (galaxy_tools_vol.id, instance_id))
             if answer:
                 _attach(ec2_conn, instance_id, galaxy_tools_vol.id, device_id)
-                sudo("mount %s %s" % (dev_id, os.path.split(galaxy_home)[0]))
+                sudo("mount %s %s" % (device_id, os.path.split(galaxy_home)[0]))
                 _start_galaxy()
-            elif confirm("Would you like to create a new volume from the new snapshot '%s', attach it to the instance '%s' and mount it?" % (snap_id, instance_id)):
+            elif confirm("Would you like to create a new volume from the *new* snapshot '%s', attach it to the instance '%s' and mount it?" % (snap_id, instance_id)):
                 try:
                     new_vol = ec2_conn.create_volume(galaxy_tools_vol.size, galaxy_tools_vol.zone, snapshot=snap_id)
                     print "Created new volume of size '%s' from snapshot '%s' with ID '%s'" % (new_vol.size, snap_id, new_vol.id)
@@ -469,50 +476,92 @@ def update_galaxy_code():
             print "----- Done updating Galaxy code -----"
         else:
             print "ERROR: Unable to 'discover' Galaxy volume id"
-        
+
 def _start_galaxy():
-    answer = confirm("Would you like to start Galaxy on instance '%s'?" % instance_id)
+    answer = confirm("Would you like to start Galaxy on instance?")
     if answer:
         sudo('su galaxy -c "source /etc/bash.bashrc; source /home/galaxy/.bash_profile; export SGE_ROOT=/opt/sge; cd /mnt/galaxyTools/galaxy-central; sh run.sh --daemon"')
 
-def _update_snaps_latest_file(snap_id, vol_size):
+def _update_snaps_latest_file(snap_id, vol_size, **kwargs):
     bucket_name = 'galaxy-snapshots'
     remote_file_name = 'snaps-latest.txt'
     remote_url = 'http://s3.amazonaws.com/%s/%s' % (bucket_name, remote_file_name)
     downloaded_local_file = "downloaded_snaps-latest.txt"
-    generated_local_file = "snaps-latest.txt"
+    old_remote_file = generated_local_file = "snaps-latest.txt"
     urllib.urlretrieve(remote_url, downloaded_local_file)
-    local("sed 's/^TOOLS.*/TOOLS=%s|%s/ %s > %s" % (snap_id, vol_size, downloaded_local_file, generated_local_file))
+    local("sed 's/^TOOLS.*/TOOLS=%s|%s/' %s > %s" % (snap_id, vol_size, downloaded_local_file, generated_local_file))
+    # Rename current old_remote_file to include date it was last modified
+    date_uploaded = _get_date_file_last_modified_on_S3(bucket_name, old_remote_file)
+    new_name_for_old_snaps_file = "snaps-%s.txt" % date_uploaded
+    _rename_file_in_S3(new_name_for_old_snaps_file, bucket_name, old_remote_file)
+    # Save the new file to S3
+    return _save_file_to_bucket(bucket_name, remote_file_name, generated_local_file, **kwargs)
 
-    return _save_file_to_bucket(s3_conn, remote_file_name, generated_local_file)
-    
-def _save_file_to_bucket( bucket_name, remote_filename, local_file ):
-    # print "Establishing handle with bucket '%s'..." % bucket_name
+def _get_bucket(bucket_name):
     s3_conn = S3Connection()
     b = None
     for i in range(0, 5):
 		try:
-			b = s3_conn.get_bucket( bucket_name )
+			b = s3_conn.get_bucket(bucket_name)
 			break
-		except S3ResponseError, e: 
-			print "Bucket '%s' not found, attempt %s/5" % ( bucket_name, i )
-	    	
+		except S3ResponseError: 
+			print "Bucket '%s' not found, attempt %s/5" % (bucket_name, i)
+			return None
+    return b
+
+def _get_date_file_last_modified_on_S3(bucket_name, file_name):
+    """Return date file_name was last modified in format YYYY-MM-DD"""
+    b = _get_bucket(bucket_name)
+    if b is not None:
+        try:
+            k = b.get_key(file_name)
+            lm = k.last_modified
+            mlf = time.strptime(lm, "%a, %d %b %Y %H:%M:%S GMT")
+            return time.strftime("%Y-%m-%d", mlf)
+        except S3ResponseError, e:
+            print "Failed to get file '%s' from bucket '%s': %s" % (file_name, bucket_name, e)
+            return ""
+    	except ValueError, e:
+            print "Failed to format file '%s' last modified: %s" % (file_name, e)
+    	    return ""
+
+def _rename_file_in_S3(new_key_name, bucket_name, old_key_name):
+    b = _get_bucket(bucket_name)
+    if b is not None:
+        try:
+            k = b.get_key(old_key_name) # copy any metadata too
+            b.copy_key(new_key_name, bucket_name, old_key_name, metadata=k.metadata, preserve_acl=True)
+            print "Successfully renamed file '%s' in bucket '%s' to '%s'." % (old_key_name, bucket_name, new_key_name)
+            return True
+        except S3ResponseError, e:
+    	     print "Failed to rename file '%s' in bucket '%s' as file '%s': %s" % (old_key_name, bucket_name, new_key_name, e)
+    	     return False
+	
+def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
+    """ Save the local_file to bucket_name as remote_filename. Also, any additional
+    argumets passed as key-value pairs, are stored as file's metadata on S3."""
+    # print "Establishing handle with bucket '%s'..." % bucket_name
+    b = _get_bucket(bucket_name)
     if b is not None:
         # print "Establishing handle with key object '%s'..." % remote_filename
-		k = Key( b, remote_filename )
-		print "Attempting to save file '%s' to bucket '%s'..." % (remote_filename, bucket_name)
-		try:
-		    k.set_contents_from_filename( local_file )
-		    print "Successfully saved file '%s' to bucket '%s'." % ( remote_filename, bucket_name )
-		    # Store some metadata (key-value pairs) about the contents of the file being uploaded
-		    k.set_metadata('date_uploaded', dt.datetime.utcnow())
-		except S3ResponseError, e:
-		     print "Failed to save file local file '%s' to bucket '%s' as file '%s': %s" % ( local_file, bucket_name, remote_filename, e )
-		     return False
-		    
-		return True
+        k = Key( b, remote_filename )
+        print "Attempting to save file '%s' to bucket '%s'..." % (remote_filename, bucket_name)
+        try:
+            # Store some metadata (key-value pairs) about the contents of the file being uploaded
+            # Note that the metadata must be set *before* writing the file
+            k.set_metadata('date_uploaded', str(dt.datetime.utcnow()))
+            for args_key in kwargs:
+                print "Adding metadata to file '%s': %s=%s" % (remote_filename, args_key, kwargs[args_key])
+                k.set_metadata(args_key, kwargs[args_key])
+            print "Saving file '%s'" % local_file
+            k.set_contents_from_filename(local_file)
+            print "Successfully added file '%s' to bucket '%s'." % (remote_filename, bucket_name)
+        except S3ResponseError, e:
+            print "Failed to save file local file '%s' to bucket '%s' as file '%s': %s" % ( local_file, bucket_name, remote_filename, e )
+            return False
+        return True
     else:
-		return False
+        return False
     
 # == Machine image rebundling code
 
@@ -583,7 +632,7 @@ def rebundle():
                     if answer:
                         ec2_conn.terminate_instances([instance_id])
                     # Create a snapshot of the new volume
-                    name = 'galaxy-cloud-%s' % time_start.strftime("%Y-%m-%d")
+                    name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
                     snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: %s" % name)
                     # Register the snapshot of the new volume as a machine image (i.e., AMI)
                     arch = 'x86_64'
