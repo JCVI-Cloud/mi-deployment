@@ -7,7 +7,7 @@ a remote server.
 Usage:
     fab -f mi_fabfile.py -H servername -i full_path_to_private_key_file <configure_MI | rebundle | update_galaxy_code>
 """
-import os, time, contextlib, urllib
+import sys, os, time, contextlib, urllib
 import datetime as dt
 from contextlib import contextmanager
 try:
@@ -290,7 +290,7 @@ def _install_openmpi():
             run("wget %s" % url)
             run("tar xvzf %s" % os.path.split(url)[1])
             with cd("openmpi-%s" % version):
-                run("./configure --prefix=%s --with-sge" % install_dir)
+                run("./configure --prefix=%s --with-sge --enable-orterun-prefix-by-default" % install_dir)
                 with settings(hide('stdout')):
                     print "Making OpenMPI..."
                     sudo("make all install")
@@ -380,7 +380,8 @@ def _configure_nfs():
     exports = [ '/opt/sge           *(rw,sync,no_root_squash,no_subtree_check)', 
                 '/mnt/galaxyData    *(rw,sync,no_root_squash,subtree_check,no_wdelay)',
                 '/mnt/galaxyIndices *(rw,sync,no_root_squash,no_subtree_check)',
-                '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)']
+                '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)',
+                '%s/openmpi         *(rw,sync,no_root_squash,no_subtree_check)' % env.install_dir]
     append(exports, '/etc/exports', use_sudo=True)
     
 def _configure_bash():
@@ -632,8 +633,8 @@ def rebundle():
                     if answer:
                         ec2_conn.terminate_instances([instance_id])
                     # Create a snapshot of the new volume
-                    name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
-                    snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: %s" % name)
+                    commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2 "' % (os.getcwd(), galaxy_home)).strip()
+                    snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using %s commit %s)" % (sys.argv[0], commit_num))
                     # Register the snapshot of the new volume as a machine image (i.e., AMI)
                     arch = 'x86_64'
                     root_device_name = '/dev/sda1'
@@ -658,6 +659,7 @@ def rebundle():
                     block_map[root_device_name] = ebs
                     block_map[ephemeral0_device_name] = ephemeral0
                     block_map[ephemeral1_device_name] = ephemeral1
+                    name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
                     image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
                     if answer:
