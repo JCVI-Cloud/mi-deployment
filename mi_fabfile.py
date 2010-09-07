@@ -52,6 +52,14 @@ start on runlevel [2345]
 task
 exec python %s/ec2autorun.py
 """
+
+welcome_msg_template = """
+#!/bin/sh
+echo
+echo "Welcome to Galaxy CloudMan!"
+echo " * Documentation:  http://galaxyproject.org/cloud"
+"""
+
  
 # == Decorators and context managers
 
@@ -386,6 +394,15 @@ def _configure_nfs():
     
 def _configure_bash():
     """Some convenience/preference settings"""
+    # Set instance login welcome message
+    welcome_msg_template_file = '10-help-text'
+    f = open( welcome_msg_template_file, 'w' )
+    print >> f, welcome_msg_template
+    f.close()
+    put(welcome_msg_template_file, '/tmp/%s' % welcome_msg_template_file) # Because of permissions issue
+    sudo("mv /tmp/%s /etc/update-motd.d/%s; chown root:root /etc/update-motd.d/%s" % (welcome_msg_template_file, welcome_msg_template_file, welcome_msg_template_file))
+    os.remove(welcome_msg_template_file)
+    
     append(['alias lt=\"ls -ltr\"', 'alias mroe=more'], '/etc/bash.bashrc', use_sudo=True)
     
 def update_galaxy_code():
