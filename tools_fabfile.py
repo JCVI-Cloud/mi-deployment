@@ -44,9 +44,9 @@ def install_tools():
         sudo("mkdir -p %s" % env.install_dir)
     append("export PATH=%s/bin:$PATH" % env.install_dir, "/etc/bash.bashrc", use_sudo=True)
     
-    _required_packages()
-    _required_libraries()
-    _support_programs()
+    # _required_packages()
+    # _required_libraries()
+    # _support_programs()
     _install_ngs_tools()
     
     sudo("chown --recursive galaxy:galaxy %s" % os.path.split(env.install_dir)[0])
@@ -107,15 +107,15 @@ def _required_packages():
 def _install_ngs_tools():
     """Install external next generation sequencing tools.
     """
-    _install_bowtie()
-    _install_bwa()
-    _install_samtools()
-    # _install_fastx_toolkit()
-    _install_maq()
-    _install_bfast()
+    # _install_bowtie()
+    # _install_bwa()
+    # _install_samtools()
+    # # _install_fastx_toolkit()
+    # _install_maq()
+    # _install_bfast()
     _install_abyss()
-    if env.install_ucsc:
-        _install_ucsc_tools()
+    # if env.install_ucsc:
+    #     _install_ucsc_tools()
 
 @_if_not_installed("faToTwoBit")
 def _install_ucsc_tools():

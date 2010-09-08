@@ -269,7 +269,7 @@ def _configure_postgresql(delete_main_dbcluster=False):
     and splits the config file away from the data. 
     This method can delete the default database cluster that was automatically
     created when the package is installed. Deleting the main database cluster 
-    also has the effect of stopping the autostart of the postmaster server at 
+    also has the effect of stopping the auto-start of the postmaster server at 
     machine boot. The method adds all of the PostgreSQL commands to the PATH.
     """
     pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d' ' | cut -f1 -d'-' | cut -f1-2 -d'.'")
@@ -557,7 +557,7 @@ def _rename_file_in_S3(new_key_name, bucket_name, old_key_name):
 	
 def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
     """ Save the local_file to bucket_name as remote_filename. Also, any additional
-    argumets passed as key-value pairs, are stored as file's metadata on S3."""
+    arguments passed as key-value pairs, are stored as file's metadata on S3."""
     # print "Establishing handle with bucket '%s'..." % bucket_name
     b = _get_bucket(bucket_name)
     if b is not None:
@@ -574,6 +574,9 @@ def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
             print "Saving file '%s'" % local_file
             k.set_contents_from_filename(local_file)
             print "Successfully added file '%s' to bucket '%s'." % (remote_filename, bucket_name)
+            answer = confirm("Would you like to make file '%s' publicly readable?" % remote_filename)
+            if answer:
+                k.make_public()
         except S3ResponseError, e:
             print "Failed to save file local file '%s' to bucket '%s' as file '%s': %s" % ( local_file, bucket_name, remote_filename, e )
             return False
@@ -611,8 +614,7 @@ def rebundle():
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         
         # Handle reboot if required
-        if _reboot(ec2_conn, instance_id):
-            return False # Indicates that rebundling was not completed
+        _reboot(ec2_conn, instance_id)
         
         image_id = None
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
@@ -650,7 +652,7 @@ def rebundle():
                     if answer:
                         ec2_conn.terminate_instances([instance_id])
                     # Create a snapshot of the new volume
-                    commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2 "' % (os.getcwd(), galaxy_home)).strip()
+                    commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2 "' % os.getcwd()).strip()
                     snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using %s commit %s)" % (sys.argv[0], commit_num))
                     # Register the snapshot of the new volume as a machine image (i.e., AMI)
                     arch = 'x86_64'
@@ -719,24 +721,23 @@ def _reboot(ec2_conn, instance_id, force=False):
              False, otherwise.
     """
     if force or exists("/var/run/reboot-required"):
-        answer = confirm("Before rebundling, instance '%s' needs to be rebooted and this script invoked again. Reboot instance?" % instance_id)
+        answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
         if answer and instance_id:
             print "Rebooting instance with ID '%s'" % instance_id
             try:
-                ec2_conn.reboot_instances([instance_id])
+                # ec2_conn.reboot_instances([instance_id])
                 wait_time = 35
+                reboot(wait_time)
                 print "Instance '%s' with IP '%s' rebooted. Waiting (%s sec) for it to come back up." % (instance_id, env.hosts[0], str(wait_time))
                 time.sleep(wait_time)
                 for i in range(30):
                     ssh = None
                     with settings(warn_only=True):
                         print "Checking ssh connectivity to instance '%s' (you may be prompted to confirm security credentials)" % env.hosts[0]
-                        # FIXME: Need a better method of determining if the instance is available yet
                         ssh = local('ssh -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
                     if ssh.return_code == 0:
                         print "\n--------------------------"
                         print "Machine '%s' is alive" % env.hosts[0]
-                        print "This script will exit now. Invoke it again while passing method name 'rebundle' as the last argument to the fab script."
                         print "--------------------------\n"
                         return True
                     else:
@@ -747,6 +748,10 @@ def _reboot(ec2_conn, instance_id, force=False):
                         return True
             except EC2ResponseError, e:
                 print("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e))
+                return False
+            except Exception, e:
+                print("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e))
+                print("Try running this script again with 'rebundle' as the last argument.")
                 return False
         else:
             print "Cannot rebundle without instance reboot. Aborting rebundling."
