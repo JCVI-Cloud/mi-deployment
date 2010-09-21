@@ -188,6 +188,7 @@ def _required_programs():
     _configure_postgresql()
     _install_setuptools()
     _install_openmpi()
+    _install_R()
     
 def _get_sge():
     url = "http://userwww.service.emory.edu/~eafgan/content/ge62u5_lx24-amd64.tar.gz"
@@ -305,6 +306,23 @@ def _install_openmpi():
                     append("export PATH=/%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
                 print "----- OpenMPI installed to %s -----" % install_dir
     
+def _install_R():
+    version = "2.11.1"
+    url = "http://mira.sunsite.utk.edu/CRAN/src/base/R-2/R-%s.tar.gz" % version
+    install_dir = os.path.join(env.install_dir, "r_%s" % version)
+    with _make_tmp_dir() as work_dir:
+        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+            run("wget %s" % url)
+            run("tar xvzf %s" % os.path.split(url)[1])
+            with cd("R-%s" % version):
+                run("./configure --prefix=%s --enable-R-shlib --with-x=no --with-readline=no" % install_dir)
+                with settings(hide('stdout')):
+                    print "Making R..."
+                    sudo("make")
+                    sudo("make install")
+                    sudo("cd %s; stow R" % env.install_dir)
+                print "----- R installed to %s -----" % install_dir 
+
 # == libraries
  
 def _required_libraries():
@@ -614,8 +632,9 @@ def rebundle():
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         
         # Handle reboot if required
-        _reboot(ec2_conn, instance_id)
-        
+        if _reboot(ec2_conn, instance_id):
+            return False # Indicates that rebundling was not completed
+            
         image_id = None
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
@@ -652,7 +671,7 @@ def rebundle():
                     if answer:
                         ec2_conn.terminate_instances([instance_id])
                     # Create a snapshot of the new volume
-                    commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2 "' % os.getcwd()).strip()
+                    commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2' % os.getcwd()).strip()
                     snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using %s commit %s)" % (sys.argv[0], commit_num))
                     # Register the snapshot of the new volume as a machine image (i.e., AMI)
                     arch = 'x86_64'
@@ -725,9 +744,9 @@ def _reboot(ec2_conn, instance_id, force=False):
         if answer and instance_id:
             print "Rebooting instance with ID '%s'" % instance_id
             try:
-                # ec2_conn.reboot_instances([instance_id])
+                ec2_conn.reboot_instances([instance_id])
                 wait_time = 35
-                reboot(wait_time)
+                # reboot(wait_time)
                 print "Instance '%s' with IP '%s' rebooted. Waiting (%s sec) for it to come back up." % (instance_id, env.hosts[0], str(wait_time))
                 time.sleep(wait_time)
                 for i in range(30):
@@ -738,6 +757,7 @@ def _reboot(ec2_conn, instance_id, force=False):
                     if ssh.return_code == 0:
                         print "\n--------------------------"
                         print "Machine '%s' is alive" % env.hosts[0]
+                        print "This script will exit now. Invoke it again while passing method name 'rebundle' as the last argument to the fab script."
                         print "--------------------------\n"
                         return True
                     else:
