@@ -188,7 +188,6 @@ def _required_programs():
     _configure_postgresql()
     _install_setuptools()
     _install_openmpi()
-    _install_R()
     
 def _get_sge():
     url = "http://userwww.service.emory.edu/~eafgan/content/ge62u5_lx24-amd64.tar.gz"
@@ -305,23 +304,6 @@ def _install_openmpi():
                     sudo("make all install")
                     append("export PATH=/%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
                 print "----- OpenMPI installed to %s -----" % install_dir
-    
-def _install_R():
-    version = "2.11.1"
-    url = "http://mira.sunsite.utk.edu/CRAN/src/base/R-2/R-%s.tar.gz" % version
-    install_dir = os.path.join(env.install_dir, "r_%s" % version)
-    with _make_tmp_dir() as work_dir:
-        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
-            run("wget %s" % url)
-            run("tar xvzf %s" % os.path.split(url)[1])
-            with cd("R-%s" % version):
-                run("./configure --prefix=%s --enable-R-shlib --with-x=no --with-readline=no" % install_dir)
-                with settings(hide('stdout')):
-                    print "Making R..."
-                    sudo("make")
-                    sudo("make install")
-                    sudo("cd %s; stow R" % env.install_dir)
-                print "----- R installed to %s -----" % install_dir 
 
 # == libraries
  

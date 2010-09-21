@@ -107,15 +107,33 @@ def _required_packages():
 def _install_ngs_tools():
     """Install external next generation sequencing tools.
     """
-    # _install_bowtie()
-    # _install_bwa()
-    # _install_samtools()
-    # # _install_fastx_toolkit()
-    # _install_maq()
-    # _install_bfast()
+    _install_bowtie()
+    _install_bwa()
+    _install_samtools()
+    # _install_fastx_toolkit()
+    _install_maq()
+    _install_bfast()
     _install_abyss()
-    # if env.install_ucsc:
-    #     _install_ucsc_tools()
+    _install_R()
+    if env.install_ucsc:
+        _install_ucsc_tools()
+
+def _install_R():
+    version = "2.11.1"
+    url = "http://mira.sunsite.utk.edu/CRAN/src/base/R-2/R-%s.tar.gz" % version
+    install_dir = os.path.join(env.install_dir, "r_%s" % version)
+    with _make_tmp_dir() as work_dir:
+        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+            run("wget %s" % url)
+            run("tar xvzf %s" % os.path.split(url)[1])
+            with cd("R-%s" % version):
+                run("./configure --prefix=%s --enable-R-shlib --with-x=no --with-readline=no" % install_dir)
+                with settings(hide('stdout')):
+                    print "Making R..."
+                    sudo("make")
+                    sudo("make install")
+                    sudo("cd %s; stow r_%s" % (env.install_dir, version))
+                print "----- R installed to %s -----" % install_dir
 
 @_if_not_installed("faToTwoBit")
 def _install_ucsc_tools():
