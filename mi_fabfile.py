@@ -7,7 +7,7 @@ a remote server.
 Usage:
     fab -f mi_fabfile.py -H servername -i full_path_to_private_key_file <configure_MI | rebundle | update_galaxy_code>
 """
-import sys, os, time, contextlib, urllib
+import os, os.path, time, contextlib, urllib
 import datetime as dt
 from contextlib import contextmanager
 try:
@@ -302,7 +302,8 @@ def _install_openmpi():
                 with settings(hide('stdout')):
                     print "Making OpenMPI..."
                     sudo("make all install")
-                    append("export PATH=/%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
+                    sudo("cd %s; stow openmpi" % env.install_dir)
+                    # append("export PATH=%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
                 print "----- OpenMPI installed to %s -----" % install_dir
 
 # == libraries
@@ -310,7 +311,7 @@ def _install_openmpi():
 def _required_libraries():
     """Install pyhton libraries"""
     # Libraries to be be installed using easy_install
-    libraries = ['simplejson', 'amqplib', 'pyyaml']
+    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob']
     for library in libraries:
         sudo("easy_install %s" % library)
         
@@ -432,9 +433,9 @@ def update_galaxy_code():
             sudo("rm %s/paster.log" % galaxy_home)
         sudo("rm %s/database/pbs/*" % galaxy_home)
     # This should not be linked to where it's linked...
-    if exists("%s/universe_wsgi.ini.orig" % galaxy_home):
-        sudo("rm %s/universe_wsgi.ini.orig" % galaxy_home)
-    sudo('su galaxy -c "cd %s; wget http://userwww.service.emory.edu/~eafgan/content/universe_wsgi.ini.orig"' % galaxy_home)
+    if exists("%s/universe_wsgi.ini.cloud" % galaxy_home):
+        sudo("rm %s/universe_wsgi.ini.cloud" % galaxy_home)
+    sudo('su galaxy -c "cd %s; wget http://s3.amazonaws.com/cloudman/universe_wsgi.ini.cloud"' % galaxy_home)
 
     # Create a new snapshot of external volume
     if boto:
@@ -601,11 +602,15 @@ def rebundle():
     """
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
+    # After reboot, the autorun log file was probbaly created so remove it from the machine image
+    if os.path.isfile('%s/ec2autorun.py.log' % env.install_dir):
+        os.remove('%s/ec2autorun.py.log' % env.install_dir)
     if boto:
         # EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
         # Either set the following two environment variables or provide credentials info in the constructor:
         # AWS_ACCESS_KEY_ID - Your AWS Access Key ID
         # AWS_SECRET_ACCESS_KEY - Your AWS Secret Access Key
+        # * OR *
         # ec2_conn = EC2Connection('<aws access key>', '<aws secret key>')
         ec2_conn = EC2Connection()
         vol_size = 15 # This will be the size (in GB) of the root partition of the new image
@@ -654,7 +659,7 @@ def rebundle():
                         ec2_conn.terminate_instances([instance_id])
                     # Create a snapshot of the new volume
                     commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2' % os.getcwd()).strip()
-                    snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using %s commit %s)" % (sys.argv[0], commit_num))
+                    snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using mi-deployment at commit %s)" % commit_num)
                     # Register the snapshot of the new volume as a machine image (i.e., AMI)
                     arch = 'x86_64'
                     root_device_name = '/dev/sda1'
