@@ -7,7 +7,7 @@ a remote server.
 Usage:
     fab -f mi_fabfile.py -H servername -i full_path_to_private_key_file <configure_MI | rebundle | update_galaxy_code>
 """
-import os, os.path, time, contextlib, urllib
+import os, os.path, time, contextlib, urllib, yaml
 import datetime as dt
 from contextlib import contextmanager
 try:
@@ -474,11 +474,11 @@ def update_galaxy_code():
             # print "Don't forget to update the file 'snaps-latest.txt' in 'galaxy-snapshots' bucket on S3 with the following line:"
             # print "TOOLS=%s|%s" % (snap_id, str(galaxy_tools_vol.size))
             print "--------------------------"
-            answer = confirm("Would you like to update the file 'snaps-latest.txt' in 'galaxy-snapshots' bucket on S3 with the following line: 'TOOLS=%s|%s'" % (snap_id, str(galaxy_tools_vol.size)))
+            answer = confirm("Would you like to update the file 'snaps.yaml' in 'cloudman' bucket on S3 to include reference to the new snapshot ID: '%s'" % snap_id)
             if answer:
-                _update_snaps_latest_file(snap_id, galaxy_tools_vol.size, commit_num='Galaxy at commit %s' % commit_num)
+                _update_snaps_latest_file('galaxyTools', snap_id, galaxy_tools_vol.size, commit_num='Galaxy at commit %s' % commit_num)
             
-            answer = confirm("Would you like to make the newly created snapshot '%s' public (you should if snaps-latest.txt in the previous question was updated)?" % snap_id)
+            answer = confirm("Would you like to make the newly created snapshot '%s' public (you should if snaps.yaml in the previous question was updated)?" % snap_id)
             if answer:
                 ec2_conn.modify_snapshot_attribute(snap_id, attribute='createVolumePermission', operation='add', groups=['all'])
             
@@ -505,17 +505,24 @@ def _start_galaxy():
     if answer:
         sudo('su galaxy -c "source /etc/bash.bashrc; source /home/galaxy/.bash_profile; export SGE_ROOT=/opt/sge; cd /mnt/galaxyTools/galaxy-central; sh run.sh --daemon"')
 
-def _update_snaps_latest_file(snap_id, vol_size, **kwargs):
-    bucket_name = 'galaxy-snapshots'
-    remote_file_name = 'snaps-latest.txt'
+def _update_snaps_latest_file(filesystem, snap_id, vol_size, **kwargs):
+    bucket_name = 'cloudman'
+    remote_file_name = 'snaps.yaml'
     remote_url = 'http://s3.amazonaws.com/%s/%s' % (bucket_name, remote_file_name)
-    downloaded_local_file = "downloaded_snaps-latest.txt"
-    old_remote_file = generated_local_file = "snaps-latest.txt"
+    downloaded_local_file = "downloaded_snaps-latest.yaml"
+    old_remote_file = generated_local_file = "snaps.yaml"
     urllib.urlretrieve(remote_url, downloaded_local_file)
-    local("sed 's/^TOOLS.*/TOOLS=%s|%s/' %s > %s" % (snap_id, vol_size, downloaded_local_file, generated_local_file))
+    with open(downloaded_local_file) as f:
+        snaps_dict = yamls.load(f)
+    for fs in snaps_dict['static_filesystems']:
+        if fs['filesystem'] == filesystem:
+            fs['snap_id'] = snap_id
+            fs['size'] = vol_size
+    with open(generated_local_file, 'w') as f:
+        yaml.dump(snaps_dict, f, default_flow_style=False)
     # Rename current old_remote_file to include date it was last modified
     date_uploaded = _get_date_file_last_modified_on_S3(bucket_name, old_remote_file)
-    new_name_for_old_snaps_file = "snaps-%s.txt" % date_uploaded
+    new_name_for_old_snaps_file = "snaps-%s.yaml" % date_uploaded
     _rename_file_in_S3(new_name_for_old_snaps_file, bucket_name, old_remote_file)
     # Save the new file to S3
     return _save_file_to_bucket(bucket_name, remote_file_name, generated_local_file, **kwargs)
