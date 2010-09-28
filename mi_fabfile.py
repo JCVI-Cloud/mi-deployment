@@ -358,12 +358,16 @@ def _configure_ec2_autorun():
 
 def _clean_rabbitmq_env():
     """
-    RabbitMQ fails to start if its database is embedded into the image so delete it now.
-    Because RabbitMQ is installed from a package, it created this directory during the install.
+    RabbitMQ fails to start if its database is embedded into the image because it saves the current
+    IP address or host name so delete it now. When starting up, RabbitMQ will recreate that directory.
     """
     sudo('/etc/init.d/rabbitmq-server stop')
     if exists('/var/lib/rabbitmq/mnesia'):
+        print "Deleting old RabbitMQ database directory at '/var/lib/rabbitmq/mnesia'"
         sudo('rm -rf /var/lib/rabbitmq/mnesia')
+    if exists('/mnesia'):
+        print "Deleting old RabbitMQ database directory at '/mnesia'"
+        sudo('rm -rf /mnesia')
         
 def _configure_sge():
     """This method only sets up the environment for SGE w/o actually setting up SGE"""

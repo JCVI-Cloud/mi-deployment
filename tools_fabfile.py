@@ -15,7 +15,6 @@ from fabric.contrib.files import *
 # -- Host specific setup for various groups of servers.
 
 env.user = 'ubuntu'
-env.install_ucsc = True
 env.remove_old_genomes = False
 env.use_sudo = False
 
@@ -115,8 +114,7 @@ def _install_ngs_tools():
     _install_bfast()
     _install_abyss()
     _install_R()
-    if env.install_ucsc:
-        _install_ucsc_tools()
+    _install_ucsc_tools()
 
 def _install_R():
     version = "2.11.1"
