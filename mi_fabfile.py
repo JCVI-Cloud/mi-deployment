@@ -60,6 +60,14 @@ echo "Welcome to Galaxy CloudMan!"
 echo " * Documentation:  http://galaxyproject.org/cloud"
 """
 
+landscape_sysinfo_template = """
+#!/bin/sh
+echo
+echo -n "  System information as of "
+/bin/date
+echo
+/usr/bin/landscape-sysinfo
+"""
  
 # == Decorators and context managers
 
@@ -361,6 +369,7 @@ def _clean_rabbitmq_env():
     RabbitMQ fails to start if its database is embedded into the image because it saves the current
     IP address or host name so delete it now. When starting up, RabbitMQ will recreate that directory.
     """
+    print "Cleaning RabbitMQ environment"
     sudo('/etc/init.d/rabbitmq-server stop')
     if exists('/var/lib/rabbitmq/mnesia'):
         print "Deleting old RabbitMQ database directory at '/var/lib/rabbitmq/mnesia'"
@@ -399,14 +408,25 @@ def _configure_nfs():
     
 def _configure_bash():
     """Some convenience/preference settings"""
-    # Set instance login welcome message
+    # Customize instance login welcome message
     welcome_msg_template_file = '10-help-text'
-    f = open( welcome_msg_template_file, 'w' )
-    print >> f, welcome_msg_template
-    f.close()
+    with open( welcome_msg_template_file, 'w' ) as f:
+        print >> f, welcome_msg_temp
     put(welcome_msg_template_file, '/tmp/%s' % welcome_msg_template_file) # Because of permissions issue
     sudo("mv /tmp/%s /etc/update-motd.d/%s; chown root:root /etc/update-motd.d/%s" % (welcome_msg_template_file, welcome_msg_template_file, welcome_msg_template_file))
+    sudo("chmod +x /etc/update-motd.d/%s" % welcome_msg_template_file)
     os.remove(welcome_msg_template_file)
+    
+    landscape_sysinfo_template
+    landscape_sysinfo_template_file = '50-landscape-sysinfo'
+    with open( welcome_msg_template_file, 'w' ) as f:
+        print >> f, welcome_msg_temp
+    put(landscape_sysinfo_template_file, '/tmp/%s' % landscape_sysinfo_template_file) # Because of permissions issue
+    sudo("mv /tmp/%s /etc/update-motd.d/%s; chown root:root /etc/update-motd.d/%s" % (landscape_sysinfo_template_file, landscape_sysinfo_template_file, landscape_sysinfo_template_file))
+    sudo("chmod +x /etc/update-motd.d/%s" % landscape_sysinfo_template_file)
+    os.remove(landscape_sysinfo_template_file)
+    
+    sudo('if [ -f /etc/update-motd.d/51_update_motd ]; then rm -f /etc/update-motd.d/51_update_motd; fi')
     
     append(['alias lt=\"ls -ltr\"', 'alias mroe=more'], '/etc/bash.bashrc', use_sudo=True)
     
@@ -613,6 +633,8 @@ def rebundle():
     """
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
+    # Make sure RabbitMQ environment is clean
+    _clean_rabbitmq_env()
     # After reboot, the autorun log file was probbaly created so remove it from the machine image
     if os.path.isfile('%s/ec2autorun.py.log' % env.install_dir):
         os.remove('%s/ec2autorun.py.log' % env.install_dir)
