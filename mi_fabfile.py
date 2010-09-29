@@ -338,46 +338,24 @@ def _install_boto():
 
 def _configure_environment():
     _configure_ec2_autorun()
-    _clean_rabbitmq_env()
     _configure_sge()
     _configure_galaxy_env()
     _configure_nfs()
     _configure_bash()
-    
+
 def _configure_ec2_autorun():
-    # url = "http://userwww.service.emory.edu/~eafgan/content/ec2autorun"
-    # with cd("/etc/init.d"):
-    #     sudo("wget %s" % url)
-    #     sudo("chmod u+x %s" % os.path.split(url)[1])
-    #     sudo("update-rc.d %s defaults 80 15" % os.path.split(url)[1])
-    #     print "----- ec2_autorun added -----"
     url = "http://userwww.service.emory.edu/~eafgan/content/ec2autorun.py"
     with cd(env.install_dir):
         sudo("wget %s" % url)
     # Create upstart configuration file for boot-time script
     cloudman_boot_file = 'cloudman.conf'
-    f = open( cloudman_boot_file, 'w' )
-    print >> f, cm_upstart % env.install_dir
-    f.close()
+    with open( cloudman_boot_file, 'w' ) as f:
+        print >> f, cm_upstart % env.install_dir
     put(cloudman_boot_file, '/tmp/%s' % cloudman_boot_file) # Because of permissions issue
     sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (cloudman_boot_file, cloudman_boot_file, cloudman_boot_file))
     os.remove(cloudman_boot_file)
     print "----- ec2_autorun added to upstart -----"
 
-def _clean_rabbitmq_env():
-    """
-    RabbitMQ fails to start if its database is embedded into the image because it saves the current
-    IP address or host name so delete it now. When starting up, RabbitMQ will recreate that directory.
-    """
-    print "Cleaning RabbitMQ environment"
-    sudo('/etc/init.d/rabbitmq-server stop')
-    if exists('/var/lib/rabbitmq/mnesia'):
-        print "Deleting old RabbitMQ database directory at '/var/lib/rabbitmq/mnesia'"
-        sudo('rm -rf /var/lib/rabbitmq/mnesia')
-    if exists('/mnesia'):
-        print "Deleting old RabbitMQ database directory at '/mnesia'"
-        sudo('rm -rf /mnesia')
-        
 def _configure_sge():
     """This method only sets up the environment for SGE w/o actually setting up SGE"""
     sge_root = '/opt/sge'
@@ -397,7 +375,7 @@ def _configure_galaxy_env():
     put(SGE_request_file, '/tmp/%s' % SGE_request_file) # Because of permissions issue
     sudo("mv /tmp/%s /home/galaxy/.%s; chown galaxy:galaxy /home/galaxy/.%s" % (SGE_request_file, SGE_request_file, SGE_request_file))
     os.remove(SGE_request_file)
-    
+
 def _configure_nfs():
     exports = [ '/opt/sge           *(rw,sync,no_root_squash,no_subtree_check)', 
                 '/mnt/galaxyData    *(rw,sync,no_root_squash,subtree_check,no_wdelay)',
@@ -405,13 +383,13 @@ def _configure_nfs():
                 '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)',
                 '%s/openmpi         *(rw,sync,no_root_squash,no_subtree_check)' % env.install_dir]
     append(exports, '/etc/exports', use_sudo=True)
-    
+
 def _configure_bash():
     """Some convenience/preference settings"""
     # Customize instance login welcome message
     welcome_msg_template_file = '10-help-text'
     with open( welcome_msg_template_file, 'w' ) as f:
-        print >> f, welcome_msg_temp
+        print >> f, welcome_msg_template
     put(welcome_msg_template_file, '/tmp/%s' % welcome_msg_template_file) # Because of permissions issue
     sudo("mv /tmp/%s /etc/update-motd.d/%s; chown root:root /etc/update-motd.d/%s" % (welcome_msg_template_file, welcome_msg_template_file, welcome_msg_template_file))
     sudo("chmod +x /etc/update-motd.d/%s" % welcome_msg_template_file)
@@ -419,8 +397,8 @@ def _configure_bash():
     
     landscape_sysinfo_template
     landscape_sysinfo_template_file = '50-landscape-sysinfo'
-    with open( welcome_msg_template_file, 'w' ) as f:
-        print >> f, welcome_msg_temp
+    with open( landscape_sysinfo_template_file, 'w' ) as f:
+        print >> f, landscape_sysinfo_template
     put(landscape_sysinfo_template_file, '/tmp/%s' % landscape_sysinfo_template_file) # Because of permissions issue
     sudo("mv /tmp/%s /etc/update-motd.d/%s; chown root:root /etc/update-motd.d/%s" % (landscape_sysinfo_template_file, landscape_sysinfo_template_file, landscape_sysinfo_template_file))
     sudo("chmod +x /etc/update-motd.d/%s" % landscape_sysinfo_template_file)
@@ -429,7 +407,7 @@ def _configure_bash():
     sudo('if [ -f /etc/update-motd.d/51_update_motd ]; then rm -f /etc/update-motd.d/51_update_motd; fi')
     
     append(['alias lt=\"ls -ltr\"', 'alias mroe=more'], '/etc/bash.bashrc', use_sudo=True)
-    
+
 def update_galaxy_code():
     """Pull the latest Galaxy code from bitbucket and update
     In order for this to work, an GC master instance on EC2 needs to be running
@@ -450,7 +428,7 @@ def update_galaxy_code():
     sudo('cd %s; rm datatypes_conf.xml' % galaxy_home)
     sudo('su galaxy -c "cd %s; sh setup.sh"' % galaxy_home)
     sudo('su galaxy -c "cd %s; sh manage_db.sh upgrade"' % galaxy_home)
-
+    
     # Clean up galaxy directory before snapshoting
     with settings(warn_only=True):
         if exists("%s/paster.log" % galaxy_home):
@@ -460,7 +438,7 @@ def update_galaxy_code():
     if exists("%s/universe_wsgi.ini.cloud" % galaxy_home):
         sudo("rm %s/universe_wsgi.ini.cloud" % galaxy_home)
     sudo('su galaxy -c "cd %s; wget http://s3.amazonaws.com/cloudman/universe_wsgi.ini.cloud"' % galaxy_home)
-
+    
     # Create a new snapshot of external volume
     if boto:
         # EDIT FOLLOWING LINE IF NEEDED/DESIRED:
@@ -586,7 +564,7 @@ def _rename_file_in_S3(new_key_name, bucket_name, old_key_name):
         except S3ResponseError, e:
     	     print "Failed to rename file '%s' in bucket '%s' as file '%s': %s" % (old_key_name, bucket_name, new_key_name, e)
     	     return False
-	
+
 def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
     """ Save the local_file to bucket_name as remote_filename. Also, any additional
     arguments passed as key-value pairs, are stored as file's metadata on S3."""
@@ -615,7 +593,7 @@ def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
         return True
     else:
         return False
-    
+
 # == Machine image rebundling code
 
 def rebundle():
@@ -633,11 +611,6 @@ def rebundle():
     """
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
-    # Make sure RabbitMQ environment is clean
-    _clean_rabbitmq_env()
-    # After reboot, the autorun log file was probbaly created so remove it from the machine image
-    if os.path.isfile('%s/ec2autorun.py.log' % env.install_dir):
-        os.remove('%s/ec2autorun.py.log' % env.install_dir)
     if boto:
         # EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
         # Either set the following two environment variables or provide credentials info in the constructor:
@@ -653,27 +626,34 @@ def rebundle():
         
         # Handle reboot if required
         if _reboot(ec2_conn, instance_id):
-            return False # Indicates that rebundling was not completed
-            
+            return False # Indicates that rebundling was not completed and should be restarted
+
+        _clean() # Clean up the environment before rebundling
         image_id = None
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
         if instance_id and availability_zone and kernel_id:
             print "Rebundling instance with ID '%s'" % instance_id
             try:
+                # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
                 vol = ec2_conn.create_volume(vol_size, availability_zone)
+                vol2 = ec2_conn.create_volume(vol_size, availability_zone)
                 # TODO: wait until it becomes 'available'
-                print "Created new volume of size '%s' with ID '%s'" % (vol_size, vol.id)
+                print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
             except EC2ResponseError, e:
                 print "Error creating volume: %s" % e
                 return False
             
             if vol:
                 try:
-                    # Attach newly created volume to the instance
+                    # Attach newly created volumes to the instance
                     dev_id = '/dev/sdh'
                     if not _attach(ec2_conn, instance_id, vol.id, dev_id):
-                        print "Error attaching volume to the instance. Aborting."
+                        print "Error attaching volume '%s' to the instance. Aborting." % vol.id
+                        return False
+                    dev_id = '/dev/sdi'
+                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id):
+                        print "Error attaching volume '%s' to the instance. Aborting." % vol2.id
                         return False
                     # Move the file system onto the new volume
                     # TODO: This should be downloaded from elsewhere
@@ -687,6 +667,7 @@ def rebundle():
                         sudo('./%s' % os.path.split(url)[1])
                     # Detach the new volume
                     _detach(ec2_conn, instance_id, vol.id)
+                    _detach(ec2_conn, instance_id, vol2.id)
                     answer = confirm("Would you like to terminate the instance used during rebundling?", default=False)
                     if answer:
                         ec2_conn.terminate_instances([instance_id])
@@ -722,9 +703,11 @@ def rebundle():
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
                     if answer:
                         ec2_conn.delete_volume(vol.id)
+                    print "Deleting the volume used for rsync only"
+                    ec2_conn.delete_volume(vol2.id)
                     print "--------------------------"
                     print "Finished creating new machine image. Image ID: '%s'" % (image_id)
-                    print "MAKE SURE to upload a new contextualization script to the 'ssfg' bucket on S3 named 'customizeEC2instance_%s.zip' AND (if this AMI is to be made public) give it read permission for everyone." % image_id
+                    # print "MAKE SURE to upload a new contextualization script to the 'ssfg' bucket on S3 named 'customizeEC2instance_%s.zip' AND (if this AMI is to be made public) give it read permission for everyone." % image_id
                     print "--------------------------"
                     answer = confirm("Would you like to make this machine image public?", default=False)
                     if image_id and answer:
@@ -833,7 +816,7 @@ def _detach( ec2_conn, instance_id, volume_id ):
     except EC2ResponseError, ( e ):
         print "Detaching volume '%s' from instance '%s' failed. Exception: %s" % ( volume_id, instance_id, e )
         return False
-
+    
     for counter in range( 30 ):
         print "Volume '%s' status '%s'" % ( volume_id, volumestatus )
         if volumestatus == 'available':
@@ -862,3 +845,22 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
     else:
         print "Could not create snapshot from volume with ID '%s'" % volume_id
         return False
+
+def _clean_rabbitmq_env():
+    """
+    RabbitMQ fails to start if its database is embedded into the image because it saves the current
+    IP address or host name so delete it now. When starting up, RabbitMQ will recreate that directory.
+    """
+    print "Cleaning RabbitMQ environment"
+    sudo('/etc/init.d/rabbitmq-server stop')
+    if exists('/var/lib/rabbitmq/mnesia'):
+        sudo('rm -rf /var/lib/rabbitmq/mnesia')
+
+def _clean():
+    """Clean up the image before rebundling"""
+    # Make sure RabbitMQ environment is clean
+    _clean_rabbitmq_env()
+    # Cleanup some of the logging files that might get bundled into the image
+    for cf in ['%s/ec2autorun.py.log' % env.install_dir, '/var/crash/*', '/var/log/firstboot.done', '$HOME/.nx_setup_done']:
+        if exists(cf):
+            sudo('rm -f %s' % cf)
