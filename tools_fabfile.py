@@ -4,7 +4,7 @@ Fabric (http://docs.fabfile.org) is used to manage the automation of
 a remote server.
 
 Usage:
-    fab -f tools_fabfile.py -i full_path_to_private_key_file -H servername install_tools
+    fab -f tools_fabfile.py -i full_path_to_private_key_file -H <servername> install_tools
 """
 import os
 from contextlib import contextmanager
@@ -15,7 +15,6 @@ from fabric.contrib.files import *
 # -- Host specific setup for various groups of servers.
 
 env.user = 'ubuntu'
-env.remove_old_genomes = False
 env.use_sudo = False
 
 def amazon_ec2():
@@ -26,10 +25,8 @@ def amazon_ec2():
     volume to it, creating a file system on it, and mounting it at below paths.
     """
     env.user = 'ubuntu'
-    env.path = '/mnt/galaxyTools/tools/pkg'
     env.install_dir = '/mnt/galaxyTools/tools'
     env.tmp_dir = "/mnt"
-    env.galaxy_files = '/mnt/galaxyTools/tools'
     env.shell = "/bin/bash -l -c"
     env.use_sudo = True
 
@@ -43,7 +40,7 @@ def install_tools():
         sudo("mkdir -p %s" % env.install_dir)
     append("export PATH=%s/bin:$PATH" % env.install_dir, "/etc/bash.bashrc", use_sudo=True)
     
-    # _required_packages()
+    _required_packages()
     # _required_libraries()
     # _support_programs()
     _install_ngs_tools()

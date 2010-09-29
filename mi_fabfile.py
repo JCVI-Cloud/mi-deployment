@@ -651,7 +651,7 @@ def rebundle():
                     if not _attach(ec2_conn, instance_id, vol.id, dev_id):
                         print "Error attaching volume '%s' to the instance. Aborting." % vol.id
                         return False
-                    dev_id = '/dev/sdi'
+                    dev_id = '/dev/sdj'
                     if not _attach(ec2_conn, instance_id, vol2.id, dev_id):
                         print "Error attaching volume '%s' to the instance. Aborting." % vol2.id
                         return False
@@ -703,7 +703,7 @@ def rebundle():
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
                     if answer:
                         ec2_conn.delete_volume(vol.id)
-                    print "Deleting the volume used for rsync only"
+                    print "Deleting the volume (%s) used for rsync only" % vol2.id
                     ec2_conn.delete_volume(vol2.id)
                     print "--------------------------"
                     print "Finished creating new machine image. Image ID: '%s'" % (image_id)
@@ -860,6 +860,8 @@ def _clean():
     """Clean up the image before rebundling"""
     # Make sure RabbitMQ environment is clean
     _clean_rabbitmq_env()
+    # Stop Apache from starting automatically at boot (it conflicts with Galaxy's nginx)
+    sudo('/usr/sbin/update-rc.d -f apache2 remove')
     # Cleanup some of the logging files that might get bundled into the image
     for cf in ['%s/ec2autorun.py.log' % env.install_dir, '/var/crash/*', '/var/log/firstboot.done', '$HOME/.nx_setup_done']:
         if exists(cf):
