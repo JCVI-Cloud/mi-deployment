@@ -48,9 +48,22 @@ cm_upstart = """
 description     "Start CloudMan contextualization script"
 
 start on runlevel [2345]
+start on started rabbitmq-server
 
 task
 exec python %s/ec2autorun.py
+"""
+
+rabitmq_upstart = """
+description "RabbitMQ Server"
+author  "RabbitMQ"
+
+start on runlevel [2345] 
+
+stop on runlevel [01456]
+
+exec /usr/sbin/rabbitmq-multi start_all 1> /var/log/rabbitmq/startup_log 2> /var/log/rabbitmq/startup_err 
+# respawn
 """
 
 welcome_msg_template = """
@@ -355,6 +368,17 @@ def _configure_ec2_autorun():
     sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (cloudman_boot_file, cloudman_boot_file, cloudman_boot_file))
     os.remove(cloudman_boot_file)
     print "----- ec2_autorun added to upstart -----"
+    
+    # Create upstart configuration file for RabbitMQ
+    rabbitmq_server_conf = 'rabbitmq-server.conf'
+    with open( rabbitmq_server_conf, 'w' ) as f:
+        print >> f, rabitmq_upstart % env.install_dir
+    put(rabbitmq_server_conf, '/tmp/%s' % rabbitmq_server_conf) # Because of permissions issue
+    sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (rabbitmq_server_conf, rabbitmq_server_conf, rabbitmq_server_conf))
+    os.remove(rabbitmq_server_conf)
+    # Stop the init.d script
+    sudo('/usr/sbin/update-rc.d -f rabbitmq-server remove')
+    print "----- RabbitMQ added to upstart -----"
 
 def _configure_sge():
     """This method only sets up the environment for SGE w/o actually setting up SGE"""
@@ -603,7 +627,6 @@ def rebundle():
     Two things should be edited and provided before invoking it: AWS account information 
     and the desired size of the root volume for the new instance.  
      
-    TODO: Customization: /usr/bin/landscape-sysinfo, /etc/update-motd.d/
     :rtype: bool
     :return: If instance was successfully rebundled and an AMI ID was received,
              return True.
@@ -852,7 +875,9 @@ def _clean_rabbitmq_env():
     IP address or host name so delete it now. When starting up, RabbitMQ will recreate that directory.
     """
     print "Cleaning RabbitMQ environment"
-    sudo('/etc/init.d/rabbitmq-server stop')
+    # sudo('/etc/init.d/rabbitmq-server stop') # If upstart script is used, upstart will restart rabbitmq upon stop
+    sudo('initctl reload-configuration')
+    sudo('stop rabbitmq-server')
     if exists('/var/lib/rabbitmq/mnesia'):
         sudo('rm -rf /var/lib/rabbitmq/mnesia')
 
