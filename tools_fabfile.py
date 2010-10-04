@@ -7,7 +7,7 @@ Usage:
     fab -f tools_fabfile.py -i full_path_to_private_key_file -H <servername> install_tools
 """
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, nested
 
 from fabric.api import *
 from fabric.contrib.files import *
@@ -40,7 +40,7 @@ def install_tools():
         sudo("mkdir -p %s" % env.install_dir)
     append("export PATH=%s/bin:$PATH" % env.install_dir, "/etc/bash.bashrc", use_sudo=True)
     
-    _required_packages()
+    # _required_packages()
     # _required_libraries()
     # _support_programs()
     _install_ngs_tools()
@@ -111,7 +111,13 @@ def _install_ngs_tools():
     _install_bfast()
     _install_abyss()
     _install_R()
+    # _install_rpy()
     # _install_ucsc_tools()
+    _install_velvet()
+    _install_macs()
+    _install_tophat()
+    _install_cufflinks()
+    _install_blast()
 
 def _install_R():
     version = "2.11.1"
@@ -119,7 +125,7 @@ def _install_R():
     pkg_name = 'r'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
-        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+        with nested(cd(work_dir), settings(hide('stdout'))):
             run("wget %s" % url)
             run("tar xvzf %s" % os.path.split(url)[1])
             with cd("R-%s" % version):
@@ -129,7 +135,25 @@ def _install_R():
                     sudo("make")
                     sudo("make install")
                     # sudo("cd %s; stow r_%s" % install_dir)
-                print "----- R installed to %s -----" % install_dir
+                print "----- R %s installed to %s -----" % (version, install_dir)
+
+def _install_rpy():
+    # *Does not work in reality*
+    version = '1.0.3'
+    url = 'http://downloads.sourceforge.net/project/rpy/rpy/%s/rpy-%s.tar.gz' % (version, version)
+    mirror_info = '?use_mirror=surfnet'
+    pkg_name = 'rpy'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            install_cmd = sudo if env.use_sudo else run
+            with cd("rpy-%s" % version):
+                install_cmd("python setup.py install --prefix %s" % install_dir)
+                # TODO: include prefix location into PYTHONPATH as part of env.sh:
+                # (e.g., "%s/lib/python2.6/site-packages/rpy-1.0.3-py2.6.egg-info" % install_dir)
+            print "----- RPy %s installed to %s -----" % (version, install_dir)
 
 @_if_not_installed("faToTwoBit")
 def _install_ucsc_tools():
@@ -153,30 +177,28 @@ def _install_ucsc_tools_src():
         with cd(work_dir):
             run("wget %s" % url)
 
-@_if_not_installed("bowtie")
+# @_if_not_installed("bowtie")
 def _install_bowtie():
-    """Install the bowtie short read aligner.
-    """
-    version = "0.12.5"
-    mirror_info = "?use_mirror=cdnetworks-us-1"
-    url = "http://downloads.sourceforge.net/project/bowtie-bio/bowtie/%s/" \
-          "bowtie-%s-src.zip" % (version, version)
+    """Install the bowtie short read aligner."""
+    version = "0.12.7"
+    mirror_info = "?use_mirror=cdnetworks-us-2"
+    url = "http://downloads.sourceforge.net/project/bowtie-bio/bowtie/%s/bowtie-%s-src.zip" % (version, version)
     pkg_name = 'bowtie'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
-    # install_dir = os.path.join(env.install_dir, "bin")
     install_cmd = sudo if env.use_sudo else run
     if not exists(install_dir):
         install_cmd("mkdir -p %s" % install_dir)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
-            run("wget %s%s" % (url, mirror_info))
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
             run("unzip %s" % os.path.split(url)[-1])
             with cd("bowtie-%s" % version):
                 run("make")
                 for fname in run("find -perm -100 -name 'bowtie*'").split("\n"):
                     install_cmd("mv -f %s %s" % (fname, install_dir))
+                print "----- bowtie%s installed to %s -----" % (version, install_dir)
 
-@_if_not_installed("bwa")
+# @_if_not_installed("bwa")
 def _install_bwa():
     version = "0.5.7"
     mirror_info = "?use_mirror=cdnetworks-us-1"
@@ -184,21 +206,21 @@ def _install_bwa():
             version)
     pkg_name = 'bwa'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
-    # install_dir = os.path.join(env.install_dir, "bin")
     install_cmd = sudo if env.use_sudo else run
     if not exists(install_dir):
         install_cmd("mkdir -p %s" % install_dir)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
-            run("wget %s%s" % (url, mirror_info))
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
             run("tar -xjvpf %s" % (os.path.split(url)[-1]))
             with cd("bwa-%s" % version):
                 run("make")
                 install_cmd("mv bwa %s" % install_dir)
                 install_cmd("mv solid2fastq.pl %s" % install_dir)
                 install_cmd("mv qualfa2fq.pl %s" % install_dir)
+            print "----- BWA %s installed to %s -----" % (version, install_dir)
 
-@_if_not_installed("samtools")
+# @_if_not_installed("samtools")
 def _install_samtools():
     version = "0.1.7"
     vext = "a"
@@ -207,13 +229,12 @@ def _install_samtools():
             "samtools-%s%s.tar.bz2" % (version, version, vext)
     pkg_name = 'samtools'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
-    # install_dir = os.path.join(env.install_dir, "bin")
     install_cmd = sudo if env.use_sudo else run
     if not exists(install_dir):
         install_cmd("mkdir -p %s" % install_dir)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
-            run("wget %s%s" % (url, mirror_info))
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
             run("tar -xjvpf %s" % (os.path.split(url)[-1]))
             with cd("samtools-%s%s" % (version, vext)):
                 run("sed -i.bak -r -e 's/-lcurses/-lncurses/g' Makefile")
@@ -221,8 +242,9 @@ def _install_samtools():
                 run("make")
                 for install in ["samtools", "misc/maq2sam-long"]:
                     install_cmd("mv -f %s %s" % (install, install_dir))
+                print "----- SAMtools %s installed to %s -----" % (version, install_dir)
 
-@_if_not_installed("fastq_quality_boxplot_graph.sh")
+# @_if_not_installed("fastq_quality_boxplot_graph.sh")
 def _install_fastx_toolkit():
     version = "0.0.13"
     gtext_version = "0.6"
@@ -246,8 +268,9 @@ def _install_fastx_toolkit():
                 run("export PKG_CONFIG_PATH=%s/lib; ./configure --prefix=%s" % (install_dir, install_dir))
                 run("make")
                 install_cmd("make install")
+            print "----- FASTX %s installed to %s -----" % (version, install_dir)
 
-@_if_not_installed("maq")
+# @_if_not_installed("maq")
 def _install_maq():
     version = "0.7.1"
     mirror_info = "?use_mirror=cdnetworks-us-1"
@@ -257,18 +280,19 @@ def _install_maq():
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
-            run("wget %s%s" % (url, mirror_info))
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
             run("tar -xjvpf %s" % (os.path.split(url)[-1]))
             install_cmd = sudo if env.use_sudo else run
             with cd("maq-%s" % version):
                 run("./configure --prefix=%s" % (install_dir))
                 run("make")
                 install_cmd("make install")
+            print "----- MAQ %s installed to %s -----" % (version, install_dir)
 
-@_if_not_installed("bfast")
+# @_if_not_installed("bfast")
 def _install_bfast():
     version = "0.6.4"
-    vext = "d"
+    vext = "e"
     url = "http://downloads.sourceforge.net/project/bfast/bfast/%s/bfast-%s%s.tar.gz"\
             % (version, version, vext)
     pkg_name = 'bfast'
@@ -282,23 +306,107 @@ def _install_bfast():
                 run("./configure --prefix=%s" % (install_dir))
                 run("make")
                 install_cmd("make install")
+            print "----- BFAST %s installed to %s -----" % (version, install_dir)
 
-@_if_not_installed("ABYSS")
+# @_if_not_installed("ABYSS")
 def _install_abyss():
-    version = "1.2.2"
+    version = "1.2.3"
     url = "http://www.bcgsc.ca/downloads/abyss/abyss-%s.tar.gz" % version
     pkg_name = 'abyss'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
-            run("wget %s" % (url))
+            run("wget %s" % url)
             run("tar -xvzf %s" % (os.path.split(url)[-1]))
             install_cmd = sudo if env.use_sudo else run
             with cd("abyss-%s" % version):
                 run("./configure --prefix=%s --with-mpi=/opt/galaxy/pkg/openmpi" % install_dir)
                 run("make")
                 install_cmd("make install")
-    
+            print "----- ABySS %s installed to %s -----" % (version, install_dir)
+
+def _install_velvet():
+    version = "1.0.13"
+    url = "http://www.ebi.ac.uk/~zerbino/velvet/velvet_%s.tgz" % version
+    pkg_name = "velvet"
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd("velvet_%s" % version):
+                run("make")
+                for fname in run("find -perm -100 -name 'velvet*'").split("\n"):
+                    install_cmd("mv -f %s %s" % (fname, install_dir))
+                print "----- Velvet %s installed to %s -----" % (version, install_dir)
+
+def _install_macs():
+    version = "1.3.7.1"
+    url = "http://liulab.dfci.harvard.edu/MACS/src/MACS-%s.tar.gz" % version
+    pkg_name = "macs"
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget --user=macs --password=chipseq %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            install_cmd = sudo if env.use_sudo else run
+            with cd("MACS-%s" % version):
+                install_cmd("python setup.py install --prefix %s" % install_dir)
+                # TODO: include prefix location into PYTHONPATH as part of env.sh:
+                # (e.g., "%s/lib/python2.6/site-packages/MACS-1.3.7.1-py2.6.egg-info" % install_dir)
+            print "----- MACS %s installed to %s -----" % (version, install_dir)
+
+def _install_tophat():
+    version = '1.1.0'
+    url = 'http://tophat.cbcb.umd.edu/downloads/tophat-%s.Linux_x86_64.tar.gz' % version
+    pkg_name = "tophat"
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd(os.path.split(url)[-1].split('.tar.gz')[0]):
+                install_cmd("mv * %s" % install_dir)
+            print "----- TopHat %s installed to %s -----" % (version, install_dir)
+
+def _install_cufflinks():
+    version = '0.9.1'
+    url = 'http://cufflinks.cbcb.umd.edu/downloads/cufflinks-%s.Linux_x86_64.tar.gz' % version
+    pkg_name = "cuflinks"
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd(os.path.split(url)[-1].split('.tar.gz')[0]):
+                install_cmd("mv * %s" % install_dir)
+            print "----- Cufflinks %s installed to %s -----" % (version, install_dir)
+
+def _install_blast():
+    version = '2.2.24+'
+    url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-%s-x64-linux.tar.gz' % version
+    pkg_name = 'blast'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd('ncbi-blast-%s/bin' % version):
+                    install_cmd("mv * %s" % install_dir)
+            print "----- BLAST %s installed to %s -----" % (version, install_dir)
+
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
     """
