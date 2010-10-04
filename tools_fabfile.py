@@ -111,12 +111,13 @@ def _install_ngs_tools():
     _install_bfast()
     _install_abyss()
     _install_R()
-    _install_ucsc_tools()
+    # _install_ucsc_tools()
 
 def _install_R():
     version = "2.11.1"
     url = "http://mira.sunsite.utk.edu/CRAN/src/base/R-2/R-%s.tar.gz" % version
-    install_dir = os.path.join(env.install_dir, "r_%s" % version)
+    pkg_name = 'r'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
         with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
             run("wget %s" % url)
@@ -127,7 +128,7 @@ def _install_R():
                     print "Making R..."
                     sudo("make")
                     sudo("make install")
-                    sudo("cd %s; stow r_%s" % (env.install_dir, version))
+                    # sudo("cd %s; stow r_%s" % install_dir)
                 print "----- R installed to %s -----" % install_dir
 
 @_if_not_installed("faToTwoBit")
@@ -160,7 +161,9 @@ def _install_bowtie():
     mirror_info = "?use_mirror=cdnetworks-us-1"
     url = "http://downloads.sourceforge.net/project/bowtie-bio/bowtie/%s/" \
           "bowtie-%s-src.zip" % (version, version)
-    install_dir = os.path.join(env.install_dir, "bin")
+    pkg_name = 'bowtie'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    # install_dir = os.path.join(env.install_dir, "bin")
     install_cmd = sudo if env.use_sudo else run
     if not exists(install_dir):
         install_cmd("mkdir -p %s" % install_dir)
@@ -179,7 +182,9 @@ def _install_bwa():
     mirror_info = "?use_mirror=cdnetworks-us-1"
     url = "http://downloads.sourceforge.net/project/bio-bwa/bwa-%s.tar.bz2" % (
             version)
-    install_dir = os.path.join(env.install_dir, "bin")
+    pkg_name = 'bwa'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    # install_dir = os.path.join(env.install_dir, "bin")
     install_cmd = sudo if env.use_sudo else run
     if not exists(install_dir):
         install_cmd("mkdir -p %s" % install_dir)
@@ -200,7 +205,9 @@ def _install_samtools():
     mirror_info = "?use_mirror=cdnetworks-us-1"
     url = "http://downloads.sourceforge.net/project/samtools/samtools/%s/" \
             "samtools-%s%s.tar.bz2" % (version, version, vext)
-    install_dir = os.path.join(env.install_dir, "bin")
+    pkg_name = 'samtools'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    # install_dir = os.path.join(env.install_dir, "bin")
     install_cmd = sudo if env.use_sudo else run
     if not exists(install_dir):
         install_cmd("mkdir -p %s" % install_dir)
@@ -222,19 +229,21 @@ def _install_fastx_toolkit():
     url_base = "http://hannonlab.cshl.edu/fastx_toolkit/"
     fastx_url = "%sfastx_toolkit-%s.tar.bz2" % (url_base, version)
     gtext_url = "%slibgtextutils-%s.tar.bz2" % (url_base, gtext_version)
+    pkg_name = 'fastx'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s" % gtext_url)
             run("tar -xjvpf %s" % (os.path.split(gtext_url)[-1]))
             install_cmd = sudo if env.use_sudo else run
             with cd("libgtextutils-%s" % gtext_version):
-                run("./configure --prefix=%s" % (env.install_dir))
+                run("./configure --prefix=%s" % (install_dir))
                 run("make")
                 install_cmd("make install")
             run("wget %s" % fastx_url)
             run("tar -xjvpf %s" % os.path.split(fastx_url)[-1])
             with cd("fastx_toolkit-%s" % version):
-                run("export PKG_CONFIG_PATH=%s/lib; ./configure --prefix=%s" % (env.install_dir, env.install_dir))
+                run("export PKG_CONFIG_PATH=%s/lib; ./configure --prefix=%s" % (install_dir, install_dir))
                 run("make")
                 install_cmd("make install")
 
@@ -244,13 +253,15 @@ def _install_maq():
     mirror_info = "?use_mirror=cdnetworks-us-1"
     url = "http://downloads.sourceforge.net/project/maq/maq/%s/maq-%s.tar.bz2" \
             % (version, version)
+    pkg_name = 'maq'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s%s" % (url, mirror_info))
             run("tar -xjvpf %s" % (os.path.split(url)[-1]))
             install_cmd = sudo if env.use_sudo else run
             with cd("maq-%s" % version):
-                run("./configure --prefix=%s" % (env.install_dir))
+                run("./configure --prefix=%s" % (install_dir))
                 run("make")
                 install_cmd("make install")
 
@@ -260,13 +271,15 @@ def _install_bfast():
     vext = "d"
     url = "http://downloads.sourceforge.net/project/bfast/bfast/%s/bfast-%s%s.tar.gz"\
             % (version, version, vext)
+    pkg_name = 'bfast'
+    install_dir = os.path.join(env.install_dir, pkg_name, "%s%s" % (version, vext))
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s" % (url))
             run("tar -xzvpf %s" % (os.path.split(url)[-1]))
             install_cmd = sudo if env.use_sudo else run
             with cd("bfast-%s%s" % (version, vext)):
-                run("./configure --prefix=%s" % (env.install_dir))
+                run("./configure --prefix=%s" % (install_dir))
                 run("make")
                 install_cmd("make install")
 
@@ -274,13 +287,15 @@ def _install_bfast():
 def _install_abyss():
     version = "1.2.2"
     url = "http://www.bcgsc.ca/downloads/abyss/abyss-%s.tar.gz" % version
+    pkg_name = 'abyss'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s" % (url))
             run("tar -xvzf %s" % (os.path.split(url)[-1]))
             install_cmd = sudo if env.use_sudo else run
             with cd("abyss-%s" % version):
-                run("./configure --prefix=%s --with-mpi=/opt/galaxy/pkg/openmpi" % env.install_dir)
+                run("./configure --prefix=%s --with-mpi=/opt/galaxy/pkg/openmpi" % install_dir)
                 run("make")
                 install_cmd("make install")
     
