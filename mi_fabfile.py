@@ -33,7 +33,8 @@ env.install_dir = '/opt/galaxy/pkg'
 env.tmp_dir = "/mnt"
 env.galaxy_files = '/mnt/galaxy'
 env.shell = "/bin/bash -l -c"
-env.use_sudo = True 
+env.use_sudo = True
+env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
 
 AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
 
@@ -148,9 +149,16 @@ def configure_MI():
 
 def _update_system():
     """Runs standard system update"""
+    _setup_sources()
     sudo('apt-get -y update')
     run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y') # Ensure a completely noninteractive upgrade
     sudo('apt-get -y dist-upgrade')
+
+def _setup_sources():
+    """Add sources for retrieving library packages."""
+    for source in env.std_sources:
+        if not contains(source, env.sources_file):
+            append(source, env.sources_file, use_sudo=True)
 
 # == packages
 
@@ -172,6 +180,7 @@ def _required_packages():
                 'subversion',
                 'postgresql',
                 'gfortran',
+                'python-rpy',
                 'libsparsehash-dev' ] # Pull from outside (e.g., yaml file)?
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
