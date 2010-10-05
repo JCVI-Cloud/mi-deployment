@@ -26,6 +26,7 @@ def amazon_ec2():
     """
     env.user = 'ubuntu'
     env.install_dir = '/mnt/galaxyTools/tools'
+    env.galaxy_home = '/mnt/galaxyTools/galaxy-central'
     env.tmp_dir = "/mnt"
     env.shell = "/bin/bash -l -c"
     env.use_sudo = True
@@ -38,12 +39,13 @@ def install_tools():
     amazon_ec2()
     if not exists(env.install_dir):
         sudo("mkdir -p %s" % env.install_dir)
-    append("export PATH=%s/bin:$PATH" % env.install_dir, "/etc/bash.bashrc", use_sudo=True)
+    append("export PATH=PATH=%s/bin:$PATH" % env.install_dir, "/etc/bash.bashrc", use_sudo=True)
     
     # _required_packages()
     # _required_libraries()
     # _support_programs()
     _install_ngs_tools()
+    _install_galaxy()
     
     sudo("chown --recursive galaxy:galaxy %s" % os.path.split(env.install_dir)[0])
 
@@ -98,6 +100,20 @@ def _required_packages():
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
 
+def _install_galaxy():
+    is_new = False
+    if not exists(env.galaxy_home):
+        is_new = True
+        with cd(os.path.split(env.galaxy_home)[0]):
+            run('hg clone http://bitbucket.org/galaxy/galaxy-central/')
+    with cd(env.galaxy_home):
+        run('hg pull')
+        run('hg update')
+        if is_new:
+            run('sh setup.sh')
+        else:
+            run('sh manage_db.sh upgrade')
+
 # == NGS
 
 def _install_ngs_tools():
@@ -110,7 +126,7 @@ def _install_ngs_tools():
     _install_maq()
     _install_bfast()
     _install_abyss()
-    _install_R()
+    # _install_R()
     # _install_rpy()
     # _install_ucsc_tools()
     _install_velvet()
@@ -134,8 +150,11 @@ def _install_R():
                     print "Making R..."
                     sudo("make")
                     sudo("make install")
-                    # sudo("cd %s; stow r_%s" % install_dir)
-                print "----- R %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- R %s installed to %s -----" % (version, install_dir)
 
 def _install_rpy():
     # *Does not work in reality*
@@ -196,7 +215,11 @@ def _install_bowtie():
                 run("make")
                 for fname in run("find -perm -100 -name 'bowtie*'").split("\n"):
                     install_cmd("mv -f %s %s" % (fname, install_dir))
-                print "----- bowtie%s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- bowtie %s installed to %s -----" % (version, install_dir)
 
 # @_if_not_installed("bwa")
 def _install_bwa():
@@ -218,7 +241,11 @@ def _install_bwa():
                 install_cmd("mv bwa %s" % install_dir)
                 install_cmd("mv solid2fastq.pl %s" % install_dir)
                 install_cmd("mv qualfa2fq.pl %s" % install_dir)
-            print "----- BWA %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- BWA %s installed to %s -----" % (version, install_dir)
 
 # @_if_not_installed("samtools")
 def _install_samtools():
@@ -242,7 +269,11 @@ def _install_samtools():
                 run("make")
                 for install in ["samtools", "misc/maq2sam-long"]:
                     install_cmd("mv -f %s %s" % (install, install_dir))
-                print "----- SAMtools %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- SAMtools %s installed to %s -----" % (version, install_dir)
 
 # @_if_not_installed("fastq_quality_boxplot_graph.sh")
 def _install_fastx_toolkit():
@@ -287,7 +318,11 @@ def _install_maq():
                 run("./configure --prefix=%s" % (install_dir))
                 run("make")
                 install_cmd("make install")
-            print "----- MAQ %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- MAQ %s installed to %s -----" % (version, install_dir)
 
 # @_if_not_installed("bfast")
 def _install_bfast():
@@ -306,7 +341,11 @@ def _install_bfast():
                 run("./configure --prefix=%s" % (install_dir))
                 run("make")
                 install_cmd("make install")
-            print "----- BFAST %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- BFAST %s installed to %s -----" % (version, install_dir)
 
 # @_if_not_installed("ABYSS")
 def _install_abyss():
@@ -323,7 +362,11 @@ def _install_abyss():
                 run("./configure --prefix=%s --with-mpi=/opt/galaxy/pkg/openmpi" % install_dir)
                 run("make")
                 install_cmd("make install")
-            print "----- ABySS %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- ABySS %s installed to %s -----" % (version, install_dir)
 
 def _install_velvet():
     version = "1.0.13"
@@ -341,7 +384,11 @@ def _install_velvet():
                 run("make")
                 for fname in run("find -perm -100 -name 'velvet*'").split("\n"):
                     install_cmd("mv -f %s %s" % (fname, install_dir))
-                print "----- Velvet %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- Velvet %s installed to %s -----" % (version, install_dir)
 
 def _install_macs():
     version = "1.3.7.1"
@@ -357,7 +404,12 @@ def _install_macs():
                 install_cmd("python setup.py install --prefix %s" % install_dir)
                 # TODO: include prefix location into PYTHONPATH as part of env.sh:
                 # (e.g., "%s/lib/python2.6/site-packages/MACS-1.3.7.1-py2.6.egg-info" % install_dir)
-            print "----- MACS %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("echo 'PYTHONPATH=%s/lib/python2.6/site-packages/MACS-1.3.7.1-py2.6.egg-info:$PYTHONPATH' >> %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- MACS %s installed to %s -----" % (version, install_dir)
 
 def _install_tophat():
     version = '1.1.0'
@@ -373,7 +425,11 @@ def _install_tophat():
             run("tar -xvzf %s" % os.path.split(url)[-1])
             with cd(os.path.split(url)[-1].split('.tar.gz')[0]):
                 install_cmd("mv * %s" % install_dir)
-            print "----- TopHat %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- TopHat %s installed to %s -----" % (version, install_dir)
 
 def _install_cufflinks():
     version = '0.9.1'
@@ -389,7 +445,11 @@ def _install_cufflinks():
             run("tar -xvzf %s" % os.path.split(url)[-1])
             with cd(os.path.split(url)[-1].split('.tar.gz')[0]):
                 install_cmd("mv * %s" % install_dir)
-            print "----- Cufflinks %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- Cufflinks %s installed to %s -----" % (version, install_dir)
 
 def _install_blast():
     version = '2.2.24+'
@@ -405,7 +465,11 @@ def _install_blast():
             run("tar -xvzf %s" % os.path.split(url)[-1])
             with cd('ncbi-blast-%s/bin' % version):
                     install_cmd("mv * %s" % install_dir)
-            print "----- BLAST %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- BLAST %s installed to %s -----" % (version, install_dir)
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
