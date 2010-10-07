@@ -6,6 +6,9 @@ a remote server.
 Usage:
     fab -f tools_fabfile.py -i full_path_to_private_key_file -H <servername> install_tools
 """
+# for Python 2.5
+from __future__ import with_statement
+
 import os
 from contextlib import contextmanager, nested
 
@@ -44,7 +47,7 @@ def install_tools():
     # _required_packages()
     # _required_libraries()
     # _support_programs()
-    _install_ngs_tools()
+    _install_tools()
     _install_galaxy()
     
     sudo("chown --recursive galaxy:galaxy %s" % os.path.split(env.install_dir)[0])
@@ -113,27 +116,37 @@ def _install_galaxy():
             run('sh setup.sh')
         else:
             run('sh manage_db.sh upgrade')
+        # set up the special HYPHY link in tool-data/
+        hyphy_dir = os.path.join(env.install_dir, 'hyphy', 'default')
+        run('ln -s %s tool-data/HYPHY' % hyphy_dir)
 
 # == NGS
 
-def _install_ngs_tools():
-    """Install external next generation sequencing tools.
+def _install_tools():
+    """Install external tools (galaxy tool dependencies).
     """
     _install_bowtie()
     _install_bwa()
     _install_samtools()
-    # _install_fastx_toolkit()
+    _install_fastx_toolkit()
     _install_maq()
     _install_bfast()
     _install_abyss()
     # _install_R()
     # _install_rpy()
-    # _install_ucsc_tools()
+    _install_ucsc_tools()
     _install_velvet()
     _install_macs()
     _install_tophat()
     _install_cufflinks()
     _install_blast()
+    _install_sputnik()
+    _install_taxonomy()
+    _install_add_scores()
+    _install_emboss_phylip()
+    _install_hyphy()
+    _install_lastz()
+    _install_perm()
 
 def _install_R():
     version = "2.11.1"
@@ -174,19 +187,29 @@ def _install_rpy():
                 # (e.g., "%s/lib/python2.6/site-packages/rpy-1.0.3-py2.6.egg-info" % install_dir)
             print "----- RPy %s installed to %s -----" % (version, install_dir)
 
-@_if_not_installed("faToTwoBit")
 def _install_ucsc_tools():
     """Install useful executables from UCSC.
     """
-    tools = ["liftOver", "faToTwoBit"]
+    from datetime import date
+    version = date.today().strftime('%Y%m%d')
     url = "http://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/"
-    install_dir = os.path.join(env.install_dir, "bin")
+    pkg_name = 'ucsc_tools'
+    tools = ["liftOver", "twoBitToFa", "wigToBigWig"]
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
     for tool in tools:
         with cd(install_dir):
             if not exists(tool):
                 install_cmd = sudo if env.use_sudo else run
                 install_cmd("wget %s%s" % (url, tool))
-                install_cmd("chmod a+rwx %s" % tool)
+                install_cmd("chmod 755 %s" % tool)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- UCSC Tools installed to %s -----" % install_dir
 
 def _install_ucsc_tools_src():
     """Install Jim Kent's executables from source.
@@ -434,7 +457,7 @@ def _install_tophat():
 def _install_cufflinks():
     version = '0.9.1'
     url = 'http://cufflinks.cbcb.umd.edu/downloads/cufflinks-%s.Linux_x86_64.tar.gz' % version
-    pkg_name = "cuflinks"
+    pkg_name = "cufflinks"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     install_cmd = sudo if env.use_sudo else run
     if not exists(install_dir):
@@ -470,6 +493,167 @@ def _install_blast():
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print "----- BLAST %s installed to %s -----" % (version, install_dir)
+
+def _install_sputnik():
+    version = 'r1'
+    url = 'http://bitbucket.org/natefoo/sputnik-mononucleotide/downloads/sputnik_%s_linux2.6_x86_64' % version
+    pkg_name = 'sputnik'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget -O sputnik %s" % url)
+            install_cmd("mv sputnik %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh %s/sputnik" % (install_dir, install_dir))
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_taxonomy():
+    version = 'r1'
+    url = 'http://bitbucket.org/natefoo/taxonomy/downloads/taxonomy_%s_linux2.6_x86_64.tar.gz' % version
+    pkg_name = 'taxonomy'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd(os.path.split(url)[-1].split('.tar.gz')[0]):
+                install_cmd("mv * %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_add_scores():
+    version = 'r1'
+    url = 'http://bitbucket.org/natefoo/add_scores/downloads/add_scores_%s_linux2.6_x86_64' % version
+    pkg_name = 'add_scores'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget -O add_scores %s" % url)
+            install_cmd("mv add_scores %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh %s/add_scores" % (install_dir, install_dir))
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_emboss_phylip():
+    version = '5.0.0'
+    url = 'ftp://emboss.open-bio.org/pub/EMBOSS/old/%s/EMBOSS-%s.tar.gz' % (version, version)
+    pkg_name = 'emboss'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd(os.path.split(url)[-1].split('.tar.gz')[0]):
+                run("./configure --prefix=%s" % install_dir)
+                run("make")
+                install_cmd("make install")
+    phylip_version = '3.6b'
+    url = 'ftp://emboss.open-bio.org/pub/EMBOSS/old/%s/PHYLIP-%s.tar.gz' % (version, phylip_version)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd(os.path.split(url)[-1].split('.tar.gz')[0]):
+                run("./configure --prefix=%s" % install_dir)
+                run("make")
+                install_cmd("make install")
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- EMBOSS+PHYLIP %s/%s installed to %s -----" % (version, phylip_version, install_dir)
+
+def _install_hyphy():
+    revision = '418'
+    version = 'r%s' % revision
+    url = 'http://www.datam0nk3y.org/svn/hyphy'
+    pkg_name = 'hyphy'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("svn co -r %s %s src" % (revision, url))
+            run("mkdir -p build/Source/Link")
+            run("mkdir build/Source/SQLite")
+            run("cp src/trunk/Core/*.{h,cp,cpp} build/Source")
+            run("cp src/trunk/HeadlessLink/*.{h,cpp} build/Source/SQLite")
+            run("cp src/trunk/NewerFunctionality/*.{h,cpp} build/Source/")
+            run("cp src/SQLite/trunk/*.{c,h} build/Source/SQLite/")
+            run("cp src/trunk/Scripts/*.sh build/")
+            run("cp src/trunk/Mains/main-unix.cpp build/Source/main-unix.cxx")
+            run("cp src/trunk/Mains/hyphyunixutils.cpp build/Source/hyphyunixutils.cpp")
+            run("cp -R src/trunk/{ChartAddIns,DatapanelAddIns,GeneticCodes,Help,SubstitutionClasses,SubstitutionModels,TemplateBatchFiles,TopologyInference,TreeAddIns,UserAddins} build")
+            run("rm build/Source/preferences.cpp")
+            with cd("build"):
+                run("bash build.sh SP")
+            install_cmd("mv build/* %s" % install_dir)
+    sudo("touch %s/env.sh" % install_dir)
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- HYPHY %s installed to %s -----" % (version, install_dir)
+
+def _install_lastz():
+    version = '1.01.88'
+    url = 'http://www.bx.psu.edu/~rsharris/lastz/older/lastz-%s.tar.gz' % version
+    pkg_name = 'lastz'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd('lastz-distrib-%s' % version):
+                run("sed -i -e 's/GCC_VERSION == 40302/GCC_VERSION >= 40302/' src/quantum.c")
+                run("make")
+                install_cmd("make LASTZ_INSTALL=%s install" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- LASTZ %s installed to %s -----" % (version, install_dir)
+
+def _install_perm():
+    version = '3.0'
+    url = 'http://perm.googlecode.com/files/PerM_Linux64%28noOpenMp%29.gz'
+    pkg_name = 'perm'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget -O PerM.gz %s" % url)
+            run("gunzip PerM.gz")
+            install_cmd("mv PerM %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh %s/PerM" % (install_dir, install_dir))
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- PerM %s installed to %s -----" % (version, install_dir)
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.

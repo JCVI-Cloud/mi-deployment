@@ -181,6 +181,7 @@ def _required_packages():
                 'postgresql',
                 'gfortran',
                 'python-rpy',
+                'r-cran-qvalue', # required by Compute q-values
                 'libsparsehash-dev' ] # Pull from outside (e.g., yaml file)?
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
