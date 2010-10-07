@@ -305,7 +305,7 @@ def _install_fastx_toolkit():
     url_base = "http://hannonlab.cshl.edu/fastx_toolkit/"
     fastx_url = "%sfastx_toolkit-%s.tar.bz2" % (url_base, version)
     gtext_url = "%slibgtextutils-%s.tar.bz2" % (url_base, gtext_version)
-    pkg_name = 'fastx'
+    pkg_name = 'fastx_toolkit'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
@@ -322,7 +322,11 @@ def _install_fastx_toolkit():
                 run("export PKG_CONFIG_PATH=%s/lib; ./configure --prefix=%s" % (install_dir, install_dir))
                 run("make")
                 install_cmd("make install")
-            print "----- FASTX %s installed to %s -----" % (version, install_dir)
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- FASTX Toolkit %s installed to %s -----" % (version, install_dir)
 
 # @_if_not_installed("maq")
 def _install_maq():
