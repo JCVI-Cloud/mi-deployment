@@ -715,6 +715,7 @@ def rebundle():
                     # http://www.shlomoswidler.com/2010/01/creating-consistent-snapshots-of-live.html
                     ebs = BlockDeviceType()
                     ebs.snapshot_id = snap_id
+                    ebs.delete_on_termination = True
                     ephemeral0_device_name = '/dev/sdb'
                     ephemeral0 = BlockDeviceType()
                     ephemeral0.ephemeral_name = 'ephemeral0'
