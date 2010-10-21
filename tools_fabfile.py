@@ -517,7 +517,7 @@ def _install_sputnik():
     print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
 
 def _install_taxonomy():
-    version = 'r1'
+    version = 'r2'
     url = 'http://bitbucket.org/natefoo/taxonomy/downloads/taxonomy_%s_linux2.6_x86_64.tar.gz' % version
     pkg_name = 'taxonomy'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
