@@ -659,6 +659,33 @@ def _install_perm():
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print "----- PerM %s installed to %s -----" % (version, install_dir)
 
+def install_gatk():
+    version = '1.0.4418'
+    url = 'ftp://ftp.broadinstitute.org/pub/gsa/GenomeAnalysisTK/GenomeAnalysisTK-%s.tar.bz2' % version
+    pkg_name = 'gatk'
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+       install_cmd("mkdir -p %s" % install_dir)
+       install_cmd("mkdir -p %s/bin" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget -O gatk.tar.bz2 %s" % url)
+            run("tar -xjf gatk.tar.bz2")
+            install_cmd("cp GenomeAnalysisTK-%s/GenomeAnalysisTK.jar %s/bin" % ( version, install_dir) )
+    # Create shell script to wrap jar
+    sudo("echo '#!/bin/sh' > %s/bin/gatk" % ( install_dir ) )
+    sudo("echo 'java -jar %s/bin/GenomeAnalysisTK.jar $@' >> %s/bin/gatk" % ( install_dir, install_dir ) )
+    sudo("chmod +x %s/bin/gatk" % install_dir)
+    # env file
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    # default link
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+        
+
+
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
     """
