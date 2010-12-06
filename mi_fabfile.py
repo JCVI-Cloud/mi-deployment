@@ -34,6 +34,7 @@ env.tmp_dir = "/mnt"
 env.galaxy_files = '/mnt/galaxy'
 env.shell = "/bin/bash -l -c"
 env.use_sudo = True
+env.sources_file = "/etc/apt/sources.list"
 env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
 
 AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field

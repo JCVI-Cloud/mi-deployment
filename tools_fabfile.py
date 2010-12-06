@@ -23,7 +23,7 @@ env.use_sudo = False
 def amazon_ec2():
     """Setup for a ubuntu 10.04 on EC2
 
-    NOTE: This script/environment assumes given environment directories are avilable.
+    NOTE: This script/environment assumes given environment directories are available.
     Typically, this would assume starting an EC2 instance, attaching an EBS
     volume to it, creating a file system on it, and mounting it at below paths.
     """
