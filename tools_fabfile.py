@@ -119,6 +119,11 @@ def _install_galaxy():
         # set up the special HYPHY link in tool-data/
         hyphy_dir = os.path.join(env.install_dir, 'hyphy', 'default')
         run('ln -s %s tool-data/HYPHY' % hyphy_dir)
+        # set up the jars directory
+        srma_dir = os.path.join(env.install_dir, 'srma', 'default')
+        haploview_dir = os.path.join(env.install_dir, 'haploview', 'default')
+        run('ln -s %s/srma.jar tool-data/shared/jars' % srma_dir)
+        run('ln -s %s/haploview.jar tool-data/shared/jars' % haploview_dir)
 
 # == NGS
 
@@ -147,6 +152,14 @@ def _install_tools():
     _install_hyphy()
     _install_lastz()
     _install_perm()
+    _install_srma()
+    _install_beam()
+    _install_pass()
+    _install_lps_tool()
+    _install_plink()
+    _install_fbat()
+    _install_haploview()
+    _install_eigenstrat()
 
 def _install_R():
     version = "2.11.1"
@@ -376,7 +389,7 @@ def _install_bfast():
 
 # @_if_not_installed("ABYSS")
 def _install_abyss():
-    version = "1.2.3"
+    version = "1.2.5"
     url = "http://www.bcgsc.ca/downloads/abyss/abyss-%s.tar.gz" % version
     pkg_name = 'abyss'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -432,7 +445,7 @@ def _install_macs():
                 # TODO: include prefix location into PYTHONPATH as part of env.sh:
                 # (e.g., "%s/lib/python2.6/site-packages/MACS-1.3.7.1-py2.6.egg-info" % install_dir)
     sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
-    sudo("echo 'PYTHONPATH=%s/lib/python2.6/site-packages/MACS-1.3.7.1-py2.6.egg-info:$PYTHONPATH' >> %s/env.sh" % (install_dir, install_dir))
+    sudo("echo 'PYTHONPATH=%s/lib/python2.6/site-packages:$PYTHONPATH' >> %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
@@ -683,8 +696,163 @@ def install_gatk():
     sudo("chmod +x %s/env.sh" % install_dir)
     # default link
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-        
 
+def _install_srma():
+    version = '0.1.7'
+    mirror_info = "?use_mirror=iweb"
+    url = 'http://downloads.sourceforge.net/project/srma/srma/%s/srma-%s.zip' \
+            % (version[:3], version)
+    pkg_name = 'srma'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
+            run("unzip %s" % (os.path.split(url)[-1]))
+            install_cmd("mv srma-%s/srma-%s.jar %s" % (version, version, install_dir))
+            install_cmd("ln -s srma-%s.jar %s/srma.jar" % (version, install_dir))
+    sudo("touch %s/env.sh" % install_dir)
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- SRMA %s installed to %s -----" % (version, install_dir)
+
+def _install_beam():
+    version = '2.0'
+    url = 'http://www.stat.psu.edu/~yuzhang/software/beam2.tar'
+    pkg_name = 'beam'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            run("tar xf %s" % (os.path.split(url)[-1]))
+            install_cmd("mv BEAM2 %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_pass():
+    version = '2.0'
+    url = 'http://www.stat.psu.edu/~yuzhang/software/pass2.tar'
+    pkg_name = 'pass'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            run("tar xf %s" % (os.path.split(url)[-1]))
+            install_cmd("mv pass2 %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_lps_tool():
+    version = '2010.09.30'
+    url = 'http://www.bx.psu.edu/miller_lab/dist/lps_tool.%s.tar.gz' % version
+    pkg_name = 'lps_tool'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            run("tar zxf %s" % (os.path.split(url)[-1]))
+            install_cmd("./lps_tool.%s/MCRInstaller.bin -P bean421.installLocation=\"%s/MCR\" -silent" % (version, install_dir))
+            install_cmd("mv lps_tool.%s/lps_tool %s" % (version, install_dir))
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("echo 'MCRROOT=%s/MCR/v711; export MCRROOT' >> %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_plink():
+    version = '1.07'
+    url = 'http://pngu.mgh.harvard.edu/~purcell/plink/dist/plink-%s-x86_64.zip' % version
+    pkg_name = 'plink'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            run("unzip %s" % (os.path.split(url)[-1]))
+            install_cmd("mv plink-%s-x86_64/plink %s" % (version, install_dir))
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_fbat():
+    version = '2.0.3'
+    url = 'http://www.biostat.harvard.edu/~fbat/software/fbat%s_linux64.tar.gz' % version.replace('.', '')
+    pkg_name = 'fbat'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            run("tar zxf %s" % (os.path.split(url)[-1]))
+            install_cmd("mv fbat %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_haploview():
+    version = '4.2b'
+    url = 'http://www.broadinstitute.org/ftp/pub/mpg/haploview/Haploview_beta.jar'
+    pkg_name = 'haploview'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            install_cmd("mv %s %s" % (os.path.split(url)[-1], install_dir))
+            install_cmd("ln -s %s %s/haploview.jar" % (os.path.split(url)[-1], install_dir))
+    sudo("touch %s/env.sh" % install_dir)
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_eigenstrat():
+    version = '3.0'
+    url = 'http://www.hsph.harvard.edu/faculty/alkes-price/files/EIG%s.tar.gz' % version
+    pkg_name = 'eigenstrat'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            run("tar zxf %s" % (os.path.split(url)[-1]))
+            install_cmd("mv bin %s" % install_dir)
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.

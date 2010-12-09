@@ -7,7 +7,7 @@ a remote server.
 Usage:
     fab -f mi_fabfile.py -H servername -i full_path_to_private_key_file <configure_MI | rebundle | update_galaxy_code>
 """
-import os, os.path, time, contextlib, urllib, yaml
+import os, os.path, time, contextlib, urllib, yaml, tempfile
 import datetime as dt
 from contextlib import contextmanager
 try:
@@ -44,6 +44,7 @@ sge_request = """
 -b no
 -shell yes
 -v PATH=/opt/sge/bin/lx24-amd64:/opt/galaxy/bin:/mnt/galaxyTools/tools/bin:/mnt/galaxyTools/tools/pkg/fastx_toolkit_0.0.13:/mnt/galaxyTools/tools/pkg/bowtie-0.12.5:/mnt/galaxyTools/tools/pkg/samtools-0.1.7_x86_64-linux:/mnt/galaxyTools/tools/pkg/gnuplot-4.4.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+-v DISPLAY=:42
 """
 
 cm_upstart = """
@@ -83,6 +84,94 @@ echo -n "  System information as of "
 echo
 /usr/bin/landscape-sysinfo
 """
+
+xvfb_init_template = """#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides:        xvfb
+# Required-Start:  $syslog
+# Required-Stop:   $syslog
+# Default-Start:   2 3 4 5
+# Default-Stop:    0 1 6
+# Short-Description: Start Xvfb daemon
+### END INIT INFO
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+. /lib/lsb/init-functions
+
+NAME=xvfb
+DAEMON=/usr/bin/Xvfb
+PIDFILE=/var/run/Xvfb.pid
+
+test -x $DAEMON || exit 5
+
+if [ -r /etc/default/$NAME ]; then
+	. /etc/default/$NAME
+fi
+
+case $1 in
+	start)
+		log_daemon_msg "Starting Virtual Framebuffer" "Xvfb"
+  		start-stop-daemon --start --quiet --background --make-pidfile --pidfile $PIDFILE --startas $DAEMON -- $XVFB_OPTS
+		status=$?
+		log_end_msg $status
+  		;;
+	stop)
+		log_daemon_msg "Stopping Virtual Framebuffer" "Xvfb"
+  		start-stop-daemon --stop --quiet --pidfile $PIDFILE
+		log_end_msg $?
+		rm -f $PIDFILE
+  		;;
+	restart|force-reload)
+		$0 stop && sleep 2 && $0 start
+  		;;
+	try-restart)
+		if $0 status >/dev/null; then
+			$0 restart
+		else
+			exit 0
+		fi
+		;;
+	reload)
+		exit 3
+		;;
+	status)
+		pidofproc -p $PIDFILE $DAEMON >/dev/null
+		status=$?
+		if [ $status -eq 0 ]; then
+			log_success_msg "Xvfb server is running."
+		else
+			log_failure_msg "Xvfb server is not running."
+		fi
+		exit $status
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|try-restart|force-reload|status}"
+		exit 2
+		;;
+esac
+"""
+
+r_packages_template = """
+r <- getOption("repos");
+r["CRAN"] <- "http://watson.nci.nih.gov/cran_mirror";
+options(repos=r);
+install.packages( c( "DBI", "RColorBrewer", "RCurl", "RSQLite", "XML", "biglm",
+  "bitops", "digest", "ggplot2", "graph", "hexbin", "hwriter", "kernlab",
+  "latticeExtra", "leaps", "pamr", "plyr", "proto", "qvalue", "reshape",
+  "statmod", "xtable", "yacca" ), dependencies = TRUE);
+source("http://bioconductor.org/biocLite.R");
+biocLite( c( "AnnotationDbi", "ArrayExpress", "ArrayTools", "Biobase",
+  "Biostrings", "DynDoc", "GEOquery", "GGBase", "GGtools", "GSEABase",
+  "IRanges", "affy", "affyPLM", "affyQCReport", "affydata", "affyio",
+  "annaffy", "annotate", "arrayQualityMetrics", "beadarray", "biomaRt",
+  "gcrma", "genefilter", "geneplotter", "globaltest", "hgu95av2.db", "limma",
+  "lumi", "makecdfenv", "marray", "preprocessCore", "ShortRead", "siggenes",
+  "simpleaffy", "snpMatrix", "vsn" ) );
+"""
+
+xvfb_default_template = """XVFB_OPTS=":42 -auth /var/lib/xvfb/auth -ac -nolisten tcp -shmem -screen 0 800x600x24"\n"""
  
 # == Decorators and context managers
 
@@ -183,7 +272,14 @@ def _required_packages():
                 'gfortran',
                 'python-rpy',
                 'r-cran-qvalue', # required by Compute q-values
-                'libsparsehash-dev' ] # Pull from outside (e.g., yaml file)?
+                'r-bioc-hilbertvis', # required by HVIS
+                'tcl-dev', # required by various R modules
+                'tk-dev', # required by various R modules
+                'imagemagick', # required by RGalaxy
+                'pdfjam', # required by RGalaxy
+                'python-scipy', # required by RGalaxy
+                'libsparsehash-dev', # Pull from outside (e.g., yaml file)?
+                'xvfb' ] # required by R's pdf() output
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
 
@@ -213,6 +309,7 @@ def _required_programs():
     install_dir = os.path.split(env.install_dir)[0]
     append("export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir), '/etc/bash.bashrc', use_sudo=True)
     append("export LD_LIBRARY_PATH=%s/lib" % install_dir, '/etc/bash.bashrc', use_sudo=True)
+    append("export DISPLAY=:42", '/etc/bash.bashrc', use_sudo=True)
     # Install required programs
     _get_sge()
     _install_nginx()
@@ -220,6 +317,7 @@ def _required_programs():
     _configure_postgresql()
     _install_setuptools()
     _install_openmpi()
+    _install_r_packages()
     
 def _get_sge():
     url = "http://userwww.service.emory.edu/~eafgan/content/ge62u5_lx24-amd64.tar.gz"
@@ -338,6 +436,16 @@ def _install_openmpi():
                     # append("export PATH=%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
                 print "----- OpenMPI installed to %s -----" % install_dir
 
+def _install_r_packages():
+    f = tempfile.NamedTemporaryFile()
+    f.write(r_packages_template)
+    f.flush()
+    with _make_tmp_dir() as work_dir:
+        put(f.name, os.path.join(work_dir, 'install_packages.r'))
+        with cd(work_dir):
+            sudo("R --vanilla --slave < install_packages.r")
+    f.close()
+
 # == libraries
  
 def _required_libraries():
@@ -366,6 +474,7 @@ def _configure_environment():
     _configure_galaxy_env()
     _configure_nfs()
     _configure_bash()
+    _configure_xvfb()
 
 def _configure_ec2_autorun():
     url = "http://userwww.service.emory.edu/~eafgan/content/ec2autorun.py"
@@ -383,7 +492,7 @@ def _configure_ec2_autorun():
     # Create upstart configuration file for RabbitMQ
     rabbitmq_server_conf = 'rabbitmq-server.conf'
     with open( rabbitmq_server_conf, 'w' ) as f:
-        print >> f, rabitmq_upstart % env.install_dir
+        print >> f, rabitmq_upstart #% env.install_dir
     put(rabbitmq_server_conf, '/tmp/%s' % rabbitmq_server_conf) # Because of permissions issue
     sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (rabbitmq_server_conf, rabbitmq_server_conf, rabbitmq_server_conf))
     os.remove(rabbitmq_server_conf)
@@ -442,6 +551,28 @@ def _configure_bash():
     sudo('if [ -f /etc/update-motd.d/51_update_motd ]; then rm -f /etc/update-motd.d/51_update_motd; fi')
     
     append(['alias lt=\"ls -ltr\"', 'alias mroe=more'], '/etc/bash.bashrc', use_sudo=True)
+
+def _configure_xvfb():
+    """Configure the virtual X framebuffer which is necessary for a couple tools."""
+    xvfb_init_file = 'xvfb_init'
+    with open( xvfb_init_file, 'w' ) as f:
+        print >> f, xvfb_init_template
+    put(xvfb_init_file, '/tmp/%s' % xvfb_init_file)
+    sudo("mv /tmp/%s /etc/init.d/xvfb; chown root:root /etc/init.d/xvfb; chmod 0755 /etc/init.d/xvfb" % xvfb_init_file)
+    xvfb_default_file = 'xvfb_default'
+    with open( xvfb_default_file, 'w' ) as f:
+        print >> f, xvfb_default_template
+    put(xvfb_default_file, '/tmp/%s' % xvfb_default_file)
+    sudo("mv /tmp/%s /etc/default/xvfb; chown root:root /etc/default/xvfb" % xvfb_default_file)
+    sudo("ln -s /etc/init.d/xvfb /etc/rc0.d/K01xvfb")
+    sudo("ln -s /etc/init.d/xvfb /etc/rc1.d/K01xvfb")
+    sudo("ln -s /etc/init.d/xvfb /etc/rc2.d/S99xvfb")
+    sudo("ln -s /etc/init.d/xvfb /etc/rc3.d/S99xvfb")
+    sudo("ln -s /etc/init.d/xvfb /etc/rc4.d/S99xvfb")
+    sudo("ln -s /etc/init.d/xvfb /etc/rc5.d/S99xvfb")
+    sudo("ln -s /etc/init.d/xvfb /etc/rc6.d/K01xvfb")
+    sudo("mkdir /var/lib/xvfb; chown root:root /var/lib/xvfb; chmod 0755 /var/lib/xvfb")
+    print "----- configured xvfb -----"
 
 def update_galaxy_code():
     """Pull the latest Galaxy code from bitbucket and update
