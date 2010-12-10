@@ -65,7 +65,7 @@ start on runlevel [2345]
 
 stop on runlevel [01456]
 
-exec /usr/sbin/rabbitmq-multi start_all 1> /var/log/rabbitmq/startup_log 2> /var/log/rabbitmq/startup_err 
+exec /usr/sbin/rabbitmq-multi start_all 1 > /var/log/rabbitmq/startup_log 2> /var/log/rabbitmq/startup_err 
 # respawn
 """
 
@@ -1020,7 +1020,8 @@ def _clean_rabbitmq_env():
     print "Cleaning RabbitMQ environment"
     # sudo('/etc/init.d/rabbitmq-server stop') # If upstart script is used, upstart will restart rabbitmq upon stop
     sudo('initctl reload-configuration')
-    sudo('stop rabbitmq-server')
+    with settings(warn_only=True):
+        sudo('stop rabbitmq-server')
     if exists('/var/lib/rabbitmq/mnesia'):
         sudo('rm -rf /var/lib/rabbitmq/mnesia')
 

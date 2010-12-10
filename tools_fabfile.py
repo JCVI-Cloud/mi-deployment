@@ -105,25 +105,26 @@ def _required_packages():
 
 def _install_galaxy():
     is_new = False
+    install_cmd = sudo if env.use_sudo else run
     if not exists(env.galaxy_home):
         is_new = True
         with cd(os.path.split(env.galaxy_home)[0]):
-            run('hg clone http://bitbucket.org/galaxy/galaxy-central/')
+            install_cmd('hg clone http://bitbucket.org/galaxy/galaxy-central/')
     with cd(env.galaxy_home):
-        run('hg pull')
-        run('hg update')
-        if is_new:
-            run('sh setup.sh')
-        else:
-            run('sh manage_db.sh upgrade')
+        if not is_new:
+            install_cmd('hg pull')
+            install_cmd('hg update')
+            install_cmd('sh manage_db.sh upgrade')
         # set up the special HYPHY link in tool-data/
         hyphy_dir = os.path.join(env.install_dir, 'hyphy', 'default')
-        run('ln -s %s tool-data/HYPHY' % hyphy_dir)
+        install_cmd('ln -s %s tool-data/HYPHY' % hyphy_dir)
         # set up the jars directory
+        if not exists('tool-data/shared/jars'):
+            install_cmd("mkdir -p tool-data/shared/jars")
         srma_dir = os.path.join(env.install_dir, 'srma', 'default')
         haploview_dir = os.path.join(env.install_dir, 'haploview', 'default')
-        run('ln -s %s/srma.jar tool-data/shared/jars' % srma_dir)
-        run('ln -s %s/haploview.jar tool-data/shared/jars' % haploview_dir)
+        install_cmd('ln -s %s/srma.jar tool-data/shared/jars/.' % srma_dir)
+        install_cmd('ln -s %s/haploview.jar tool-data/shared/jars/.' % haploview_dir)
 
 # == NGS
 
