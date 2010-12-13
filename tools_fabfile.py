@@ -115,6 +115,14 @@ def _install_galaxy():
             install_cmd('hg pull')
             install_cmd('hg update')
             install_cmd('sh manage_db.sh upgrade')
+        # Make sure Galaxy runs in a new shell and does not inherit the environment
+        # by adding the '-ES' flag to all invocations of python within run.sh
+        with settings(warn_only=True):
+            install_cmd("sed -i 's/python .\//python -ES .\//g' run.sh")
+        # Append DRMAA_LIBRARY_PATH in run.sh as well (this file will exist
+        # once SGE is installed - which happens at instance contextualization)
+        with settings(warn_only=True):
+            install_cmd("grep -q 'export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; if [ $? -eq 1 ]; then sed -i '2 a export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; fi")
         # set up the special HYPHY link in tool-data/
         hyphy_dir = os.path.join(env.install_dir, 'hyphy', 'default')
         install_cmd('ln -s %s tool-data/HYPHY' % hyphy_dir)

@@ -1018,7 +1018,8 @@ def _clean_rabbitmq_env():
     IP address or host name so delete it now. When starting up, RabbitMQ will recreate that directory.
     """
     print "Cleaning RabbitMQ environment"
-    # sudo('/etc/init.d/rabbitmq-server stop') # If upstart script is used, upstart will restart rabbitmq upon stop
+    with settings(warn_only=True):
+        sudo('/etc/init.d/rabbitmq-server stop') # If upstart script is used, upstart will restart rabbitmq upon stop
     sudo('initctl reload-configuration')
     with settings(warn_only=True):
         sudo('stop rabbitmq-server')
