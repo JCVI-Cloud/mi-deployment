@@ -575,12 +575,13 @@ def _configure_xvfb():
     print "----- configured xvfb -----"
 
 def update_galaxy_code():
-    """Pull the latest Galaxy code from bitbucket and update
-    In order for this to work, an GC master instance on EC2 needs to be running
-    with a volume where galaxy is stored attached. The script will then update
-    Galaxy source and create a new snapshot.
-    This script may also be used when updating tools that are also stored on the
-    same volume as Galaxy.  
+    """Pull the latest Galaxy code from bitbucket, update and offer to create a 
+    a new snapshot.
+    In order for this to work, an Galaxy CloudMan master instance on EC2 needs to
+    be running with a volume where Galaxy is stored attached. The script will 
+    then update the Galaxy source and offer to update relevant files.
+    This script may also be useful when updating and snapshoting tools that are 
+    stored on the same volume as Galaxy.  
     """
     galaxy_home = "/mnt/galaxyTools/galaxy-central"
     if exists("%s/paster.pid" % galaxy_home):
@@ -590,9 +591,9 @@ def update_galaxy_code():
     # main Galaxy repository, force local change to persist in case of a merge
     sudo('su galaxy -c "cd %s; hg --config ui.merge=internal:local pull --update"' % galaxy_home)
     commit_num = sudo('su galaxy -c "cd %s; hg tip | grep changeset | cut -d: -f2 "' % galaxy_home).strip()
-    # A vanilla datatypes_conf is used so to make sure it's up to date delete it; setup.sh will recreate it.
-    sudo('cd %s; rm datatypes_conf.xml' % galaxy_home)
-    sudo('su galaxy -c "cd %s; sh setup.sh"' % galaxy_home)
+    # A vanilla datatypes_conf is used so to make sure it's up to date delete it; it will be automatically recreated.
+    if exists("%s/datatypes_conf.xml" % galaxy_home):
+        sudo('cd %s; rm datatypes_conf.xml' % galaxy_home)
     sudo('su galaxy -c "cd %s; sh manage_db.sh upgrade"' % galaxy_home)
     
     # Clean up galaxy directory before snapshoting
@@ -600,7 +601,6 @@ def update_galaxy_code():
         if exists("%s/paster.log" % galaxy_home):
             sudo("rm %s/paster.log" % galaxy_home)
         sudo("rm %s/database/pbs/*" % galaxy_home)
-    # This should not be linked to where it's linked...
     if exists("%s/universe_wsgi.ini.cloud" % galaxy_home):
         sudo("rm %s/universe_wsgi.ini.cloud" % galaxy_home)
     sudo('su galaxy -c "cd %s; wget http://s3.amazonaws.com/cloudman/universe_wsgi.ini.cloud"' % galaxy_home)
@@ -662,7 +662,7 @@ def update_galaxy_code():
                     print "Error creating volume: %s" % e
             print "----- Done updating Galaxy code -----"
         else:
-            print "ERROR: Unable to 'discover' Galaxy volume id"
+            print "ERROR: Unable to 'discover' Galaxy volume id; volume not snapshoted"
 
 def _start_galaxy():
     answer = confirm("Would you like to start Galaxy on instance?")
@@ -677,7 +677,7 @@ def _update_snaps_latest_file(filesystem, snap_id, vol_size, **kwargs):
     old_remote_file = generated_local_file = "snaps.yaml"
     urllib.urlretrieve(remote_url, downloaded_local_file)
     with open(downloaded_local_file) as f:
-        snaps_dict = yamls.load(f)
+        snaps_dict = yaml.load(f)
     for fs in snaps_dict['static_filesystems']:
         if fs['filesystem'] == filesystem:
             fs['snap_id'] = snap_id
