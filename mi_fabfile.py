@@ -602,6 +602,16 @@ def update_galaxy_code():
         if exists("%s/paster.log" % galaxy_home):
             sudo("rm %s/paster.log" % galaxy_home)
         sudo("rm %s/database/pbs/*" % galaxy_home)
+        # set up the symlink for SAMTOOLS (remove this code once SAMTOOLS is converted to data tables)
+        if exists("%s/tool-data/sam_fa_indices.loc" % galaxy_home):
+            sudo("rm %s/tool-data/sam_fa_indices.loc" % galaxy_home)
+        tmp_loc = False
+        if not exists("/mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc"):
+            sudo("touch /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
+            tmp_loc = True
+        sudo("ln -s /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % galaxy_home)
+        if tmp_loc:
+            sudo("rm /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
         # Upload the custom cloud welcome screen files
         if not exists("%s/static/images/cloud.gif" % galaxy_home):
             sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (galaxy_home, CDN_ROOT_URL))

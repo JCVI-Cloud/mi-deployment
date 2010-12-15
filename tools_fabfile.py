@@ -131,6 +131,16 @@ def _install_galaxy():
             if not exists("%s/static/images/cloud_txt.png" % galaxy_home):
                 sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (galaxy_home, CDN_ROOT_URL))
             sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (galaxy_home, CDN_ROOT_URL))
+        # set up the symlink for SAMTOOLS (remove this code once SAMTOOLS is converted to data tables)
+        if exists("%s/tool-data/sam_fa_indices.loc" % galaxy_home):
+            install_cmd("rm %s/tool-data/sam_fa_indices.loc" % galaxy_home)
+        tmp_loc = False
+        if not exists("/mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc"):
+            install_cmd("touch /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
+            tmp_loc = True
+        install_cmd("ln -s /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % galaxy_home)
+        if tmp_loc:
+            install_cmd("rm /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
         # set up the special HYPHY link in tool-data/
         hyphy_dir = os.path.join(env.install_dir, 'hyphy', 'default')
         install_cmd('ln -s %s tool-data/HYPHY' % hyphy_dir)
