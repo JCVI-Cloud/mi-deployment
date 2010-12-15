@@ -15,8 +15,10 @@ from contextlib import contextmanager, nested
 from fabric.api import *
 from fabric.contrib.files import *
 
-# -- Host specific setup for various groups of servers.
+# -- Adjust this link if using content from another location
+CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 
+# -- Host specific setup for various groups of servers.
 env.user = 'ubuntu'
 env.use_sudo = False
 
@@ -123,6 +125,12 @@ def _install_galaxy():
         # once SGE is installed - which happens at instance contextualization)
         with settings(warn_only=True):
             install_cmd("grep -q 'export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; if [ $? -eq 1 ]; then sed -i '2 a export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; fi")
+            # Upload the custom cloud welcome screen files
+            if not exists("%s/static/images/cloud.gif" % galaxy_home):
+                sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (galaxy_home, CDN_ROOT_URL))
+            if not exists("%s/static/images/cloud_txt.png" % galaxy_home):
+                sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (galaxy_home, CDN_ROOT_URL))
+            sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (galaxy_home, CDN_ROOT_URL))
         # set up the special HYPHY link in tool-data/
         hyphy_dir = os.path.join(env.install_dir, 'hyphy', 'default')
         install_cmd('ln -s %s tool-data/HYPHY' % hyphy_dir)

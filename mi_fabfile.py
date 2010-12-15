@@ -24,8 +24,11 @@ from fabric.api import *
 from fabric.contrib.files import *
 from fabric.contrib.console import confirm
 
-# -- Specific setup for the Galaxy Cloud AMI
+AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
+# -- Adjust this link if using content from another location
+CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 
+# -- Specific setup for the Galaxy Cloud AMI
 env.user = 'ubuntu'
 env.use_sudo = True
 env.path = '/mnt/galaxyTools/galaxy-central'
@@ -36,8 +39,6 @@ env.shell = "/bin/bash -l -c"
 env.use_sudo = True
 env.sources_file = "/etc/apt/sources.list"
 env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
-
-AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
 
 # == Templates
 sge_request = """
@@ -320,7 +321,7 @@ def _required_programs():
     _install_r_packages()
     
 def _get_sge():
-    url = "http://userwww.service.emory.edu/~eafgan/content/ge62u5_lx24-amd64.tar.gz"
+    url = "%s/ge62u5_lx24-amd64.tar.gz" % CDN_ROOT_URL
     install_dir = env.install_dir
     with _make_tmp_dir() as work_dir:
         with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
@@ -477,7 +478,7 @@ def _configure_environment():
     _configure_xvfb()
 
 def _configure_ec2_autorun():
-    url = "http://userwww.service.emory.edu/~eafgan/content/ec2autorun.py"
+    url = "%s/ec2autorun.py" % CDN_ROOT_URL
     with cd(env.install_dir):
         sudo("wget %s" % url)
     # Create upstart configuration file for boot-time script
@@ -601,6 +602,12 @@ def update_galaxy_code():
         if exists("%s/paster.log" % galaxy_home):
             sudo("rm %s/paster.log" % galaxy_home)
         sudo("rm %s/database/pbs/*" % galaxy_home)
+        # Upload the custom cloud welcome screen files
+        if not exists("%s/static/images/cloud.gif" % galaxy_home):
+            sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (galaxy_home, CDN_ROOT_URL))
+        if not exists("%s/static/images/cloud_txt.png" % galaxy_home):
+            sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (galaxy_home, CDN_ROOT_URL))
+        sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (galaxy_home, CDN_ROOT_URL))
     if exists("%s/universe_wsgi.ini.cloud" % galaxy_home):
         sudo("rm %s/universe_wsgi.ini.cloud" % galaxy_home)
     sudo('su galaxy -c "cd %s; wget http://s3.amazonaws.com/cloudman/universe_wsgi.ini.cloud"' % galaxy_home)
@@ -822,7 +829,7 @@ def rebundle():
                         return False
                     # Move the file system onto the new volume
                     # TODO: This should be downloaded from elsewhere
-                    url = 'http://userwww.service.emory.edu/~eafgan/content/instance-to-ebs-ami.sh'
+                    url = '%s/instance-to-ebs-ami.sh' % CDN_ROOT_URL
                     # with contextlib.nested(cd('/tmp'), settings(hide('stdout', 'stderr'))):
                     with cd('/tmp'):
                         if exists('/tmp/'+os.path.split(url)[1]):
