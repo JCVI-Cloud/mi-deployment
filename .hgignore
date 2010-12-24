@@ -1,0 +1,19 @@
+syntax: regexp
+
+BAK.py$
+
+syntax: glob
+
+.hg/*
+
+# Python bytecode
+*.pyc
+
+# Config files
+snaps.yaml
+
+# Project files
+*.kpf
+
+#ignore .orig backups
+*.orig
