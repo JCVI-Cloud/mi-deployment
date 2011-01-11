@@ -231,10 +231,10 @@ def configure_MI():
     _required_libraries()
     _configure_environment() 
     time_end = dt.datetime.utcnow()
+    print "Duration of machine configuration: %s" % str(time_end-time_start)
     answer = confirm("Would you like to bundle this instance into a new machine image?", default=False)
     if answer:
         rebundle()
-    print "Duration of machine configuration: %s" % str(time_end-time_start)
 
 # == system
 
@@ -360,13 +360,13 @@ def _install_nginx():
     url = os.path.join(CDN_ROOT_URL, nginx_conf_file)
     remote_conf_dir = os.path.join(install_dir, "conf")
     with cd(remote_conf_dir):
-        sudo("wget %s" % url)
+        sudo("wget %s -O %s" % (url, nginx_conf_file))
     
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
     url = os.path.join(CDN_ROOT_URL, nginx_errdoc_file)
     remote_errdoc_dir = os.path.join(install_dir, "html")
     with cd(remote_errdoc_dir):
-        sudo("wget %s" % url)
+        sudo("wget %s -O %s" % (url, nginx_errdoc_file))
         sudo('tar xvzf %s' % nginx_errdoc_file)
     print "----- nginx installed and configured -----"
     
@@ -932,9 +932,11 @@ def _reboot(ec2_conn, instance_id, force=False):
              the instance is accessible.
              False, otherwise.
     """
-    if force or exists("/var/run/reboot-required"):
-        answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
-        if answer and instance_id:
+    if (force or exists("/var/run/reboot-required")) and instance_id:
+        answer = False
+        if not force:
+            answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
+        if force or answer:
             print "Rebooting instance with ID '%s'" % instance_id
             try:
                 ec2_conn.reboot_instances([instance_id])
@@ -945,8 +947,8 @@ def _reboot(ec2_conn, instance_id, force=False):
                 for i in range(30):
                     ssh = None
                     with settings(warn_only=True):
-                        print "Checking ssh connectivity to instance '%s' (you may be prompted to confirm security credentials)" % env.hosts[0]
-                        ssh = local('ssh -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
+                        print "Checking ssh connectivity to instance '%s'" % env.hosts[0]
+                        ssh = local('ssh -o StrictHostKeyChecking=no -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
                     if ssh.return_code == 0:
                         print "\n--------------------------"
                         print "Machine '%s' is alive" % env.hosts[0]
