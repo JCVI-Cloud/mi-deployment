@@ -230,10 +230,10 @@ def configure_MI():
     _required_programs()
     _required_libraries()
     _configure_environment() 
+    time_end = dt.datetime.utcnow()
     answer = confirm("Would you like to bundle this instance into a new machine image?", default=False)
     if answer:
         rebundle()
-    time_end = dt.datetime.utcnow()
     print "Duration of machine configuration: %s" % str(time_end-time_start)
 
 # == system
@@ -357,23 +357,18 @@ def _install_nginx():
                 sudo("cd %s; stow nginx" % env.install_dir)
                 
     nginx_conf_file = 'nginx.conf'
-    if os.path.exists(nginx_conf_file):
-        remote_conf_dir = os.path.join(install_dir, "conf", nginx_conf_file)
-        put(nginx_conf_file, '/tmp/%s' % nginx_conf_file)
-        sudo('mv /tmp/%s %s' % (nginx_conf_file, remote_conf_dir))
-    else:
-        print "ERROR: failed to find local configuration file '%s' for nginx" % nginx_conf_file
-
+    url = os.path.join(CDN_ROOT_URL, nginx_conf_file)
+    remote_conf_dir = os.path.join(install_dir, "conf")
+    with cd(remote_conf_dir):
+        sudo("wget %s" % url)
+    
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
-    if os.path.exists(nginx_errdoc_file):
-        put(nginx_errdoc_file, '/tmp/%s' % nginx_errdoc_file)
-        remote_errdoc_dir = os.path.join(install_dir, "html") 
-        sudo('mv /tmp/%s %s/%s' % (nginx_errdoc_file, remote_errdoc_dir, nginx_errdoc_file))
-        with cd(remote_errdoc_dir):
-            sudo('tar xvzf %s' % nginx_errdoc_file)
-        print "----- nginx installed and configured -----"
-    else:
-        print "ERROR: failed to find local error doc file '%s' for nginx" % nginx_errdoc_file
+    url = os.path.join(CDN_ROOT_URL, nginx_errdoc_file)
+    remote_errdoc_dir = os.path.join(install_dir, "html")
+    with cd(remote_errdoc_dir):
+        sudo("wget %s" % url)
+        sudo('tar xvzf %s' % nginx_errdoc_file)
+    print "----- nginx installed and configured -----"
     
 @_if_not_installed("pg_ctl")
 def _install_postgresql():
