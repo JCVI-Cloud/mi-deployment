@@ -794,13 +794,26 @@ def rebundle():
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
     if boto:
+        # Select appropriate region:
+        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
+        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
+        regions = boto.ec2.regions()
+        print "Found regions: %s; trying to match to instance region: %s" % (regions, instance_region)
+        region = None
+        for r in regions:
+            if instance_region in r.name:
+                region = r
+                break
+        if not region:
+            print "ERROR discovering a region; try running this script again using 'rebundle' as the last argument."
+            return None
         # EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
         # Either set the following two environment variables or provide credentials info in the constructor:
         # AWS_ACCESS_KEY_ID - Your AWS Access Key ID
         # AWS_SECRET_ACCESS_KEY - Your AWS Secret Access Key
         # * OR *
         # ec2_conn = EC2Connection('<aws access key>', '<aws secret key>')
-        ec2_conn = EC2Connection()
+        ec2_conn = EC2Connection(region=region)
         vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
@@ -812,10 +825,9 @@ def rebundle():
 
         _clean() # Clean up the environment before rebundling
         image_id = None
-        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
         if instance_id and availability_zone and kernel_id:
-            print "Rebundling instance with ID '%s'" % instance_id
+            print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, region.name)
             try:
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
                 vol = ec2_conn.create_volume(vol_size, availability_zone)
