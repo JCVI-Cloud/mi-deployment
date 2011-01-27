@@ -230,11 +230,11 @@ def configure_MI():
     _required_programs()
     _required_libraries()
     _configure_environment() 
+    time_end = dt.datetime.utcnow()
+    print "Duration of machine configuration: %s" % str(time_end-time_start)
     answer = confirm("Would you like to bundle this instance into a new machine image?")
     if answer:
         rebundle()
-    time_end = dt.datetime.utcnow()
-    print "Duration of machine configuration: %s" % str(time_end-time_start)
 
 # == system
 
@@ -290,14 +290,14 @@ def _setup_users():
     _add_user('galaxy')
     _add_user('sgeadmin')
     _add_user('postgres')
-        
+
 def _add_user(username):
     """ Add user with username to the system """
     if not contains(username, '/etc/passwd'):
         print "User '%s' not found, adding it now" % username
         sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" %s' % (username, username))
         print "Added user '%s'" % username
-        
+
 # == required programs
 
 def _required_programs():
@@ -305,7 +305,7 @@ def _required_programs():
     if not exists(env.install_dir):
         sudo("mkdir -p %s" % env.install_dir)
         sudo("chown %s %s" % (env.user, env.install_dir))
-
+    
     # Setup global environment for all users
     install_dir = os.path.split(env.install_dir)[0]
     append("export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir), '/etc/bash.bashrc', use_sudo=True)
@@ -319,7 +319,7 @@ def _required_programs():
     _install_setuptools()
     _install_openmpi()
     _install_r_packages()
-    
+
 def _get_sge():
     url = "%s/ge62u5_lx24-amd64.tar.gz" % CDN_ROOT_URL
     install_dir = env.install_dir
@@ -329,7 +329,7 @@ def _get_sge():
             sudo("chown %s %s" % (env.user, install_dir))
             run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
             print "----- SGE downloaded and extracted to '%s' -----" % install_dir
-    
+
 # @_if_not_installed("nginx") # FIXME: this call is actually going to start nginx and never return...
 def _install_nginx():
     upload_module_version = "2.0.12"
@@ -366,7 +366,7 @@ def _install_nginx():
     remote_conf_dir = os.path.join(install_dir, "conf", nginx_conf_file)
     put(nginx_conf_file, '/tmp/%s' % nginx_conf_file)
     sudo('mv /tmp/%s %s' % (nginx_conf_file, remote_conf_dir))
-
+    
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
     while not os.path.exists(nginx_errdoc_file):
         print "ERROR: failed to find local errdoc file '%s' for nginx" % nginx_errdoc_file
@@ -377,10 +377,8 @@ def _install_nginx():
     put(nginx_errdoc_file, '/tmp/%s' % nginx_errdoc_file)
     remote_errdoc_dir = os.path.join(install_dir, "html") 
     sudo('mv /tmp/%s %s/%s' % (nginx_errdoc_file, remote_errdoc_dir, nginx_errdoc_file))
-    with cd(remote_errdoc_dir):
-        sudo('tar xvzf %s' % nginx_errdoc_file)
     print "----- nginx installed and configured -----"
-    
+
 @_if_not_installed("pg_ctl")
 def _install_postgresql():
     version = "8.4.4"
@@ -398,7 +396,7 @@ def _install_postgresql():
                 sudo("make install")
                 sudo("cd %s; stow postgresql" % env.install_dir)
                 print "----- PostgreSQL installed -----"
-                
+
 def _configure_postgresql(delete_main_dbcluster=False):
     """ This method is intended for cleaning up the installation when
     PostgreSQL is installed from a package. Basically, when PostgreSQL 
@@ -414,7 +412,7 @@ def _configure_postgresql(delete_main_dbcluster=False):
         sudo('su postgres -c"pg_dropcluster --stop %s main"' % pg_ver)
     append("export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver, "/etc/bash.bashrc", use_sudo=True)
     print "----- PostgreSQL configured -----"
-    
+
 @_if_not_installed("easy_install")
 def _install_setuptools():
     version = "0.6c11"
@@ -461,7 +459,7 @@ def _required_libraries():
     libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob']
     for library in libraries:
         sudo("easy_install %s" % library)
-        
+    
     _install_boto()
 
 # @_if_not_installed # FIXME: check if boto is installed or just enable installation of an updated version
@@ -828,7 +826,7 @@ def rebundle():
         # Handle reboot if required
         if _reboot(ec2_conn, instance_id):
             return False # Indicates that rebundling was not completed and should be restarted
-
+        
         _clean() # Clean up the environment before rebundling
         image_id = None
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
@@ -943,9 +941,11 @@ def _reboot(ec2_conn, instance_id, force=False):
              the instance is accessible.
              False, otherwise.
     """
-    if force or exists("/var/run/reboot-required"):
-        answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
-        if answer and instance_id:
+    if (force or exists("/var/run/reboot-required")) and instance_id:
+        answer = False
+        if not force:
+            answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
+        if force or answer:
             print "Rebooting instance with ID '%s'" % instance_id
             try:
                 ec2_conn.reboot_instances([instance_id])
@@ -956,8 +956,8 @@ def _reboot(ec2_conn, instance_id, force=False):
                 for i in range(30):
                     ssh = None
                     with settings(warn_only=True):
-                        print "Checking ssh connectivity to instance '%s' (you may be prompted to confirm security credentials)" % env.hosts[0]
-                        ssh = local('ssh -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
+                        print "Checking ssh connectivity to instance '%s'" % env.hosts[0]
+                        ssh = local('ssh -o StrictHostKeyChecking=no -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
                     if ssh.return_code == 0:
                         print "\n--------------------------"
                         print "Machine '%s' is alive" % env.hosts[0]
@@ -992,7 +992,7 @@ def _attach( ec2_conn, instance_id, volume_id, device ):
     except EC2ResponseError, e:
         print "Attaching volume '%s' to instance '%s' as device '%s' failed. Exception: %s" % ( volume_id, instance_id, device, e )
         return False
-
+    
     for counter in range( 30 ):
         print "Attach attempt %s, volume status: %s" % ( counter, volumestatus )
         if volumestatus == 'attached':
@@ -1001,7 +1001,7 @@ def _attach( ec2_conn, instance_id, volume_id, device ):
         if counter == 29:
             print "Volume '%s' FAILED to attach to instance '%s' as device '%s'. Aborting." % ( volume_id, instance_id, device )
             return False
-
+        
         volumes = ec2_conn.get_all_volumes( [volume_id] )
         volumestatus = volumes[0].attachment_state()
         time.sleep( 3 )
