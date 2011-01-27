@@ -230,7 +230,7 @@ def configure_MI():
     _required_programs()
     _required_libraries()
     _configure_environment() 
-    answer = confirm("Would you like to bundle this instance into a new machine image?", default=False)
+    answer = confirm("Would you like to bundle this instance into a new machine image?")
     if answer:
         rebundle()
     time_end = dt.datetime.utcnow()
@@ -357,23 +357,29 @@ def _install_nginx():
                 sudo("cd %s; stow nginx" % env.install_dir)
                 
     nginx_conf_file = 'nginx.conf'
-    if os.path.exists(nginx_conf_file):
-        remote_conf_dir = os.path.join(install_dir, "conf", nginx_conf_file)
-        put(nginx_conf_file, '/tmp/%s' % nginx_conf_file)
-        sudo('mv /tmp/%s %s' % (nginx_conf_file, remote_conf_dir))
-    else:
+    while not os.path.exists(nginx_conf_file):
         print "ERROR: failed to find local configuration file '%s' for nginx" % nginx_conf_file
+        try:
+            nginx_conf_file = input('Provide local path to the needed file (in quotes, e.g. "/tmp/nginx.conf"): ')
+        except Exception, e:
+            print "ERROR in your input; try again: %s" % e
+    remote_conf_dir = os.path.join(install_dir, "conf", nginx_conf_file)
+    put(nginx_conf_file, '/tmp/%s' % nginx_conf_file)
+    sudo('mv /tmp/%s %s' % (nginx_conf_file, remote_conf_dir))
 
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
-    if os.path.exists(nginx_errdoc_file):
-        put(nginx_errdoc_file, '/tmp/%s' % nginx_errdoc_file)
-        remote_errdoc_dir = os.path.join(install_dir, "html") 
-        sudo('mv /tmp/%s %s/%s' % (nginx_errdoc_file, remote_errdoc_dir, nginx_errdoc_file))
-        with cd(remote_errdoc_dir):
-            sudo('tar xvzf %s' % nginx_errdoc_file)
-        print "----- nginx installed and configured -----"
-    else:
-        print "ERROR: failed to find local error doc file '%s' for nginx" % nginx_errdoc_file
+    while not os.path.exists(nginx_errdoc_file):
+        print "ERROR: failed to find local errdoc file '%s' for nginx" % nginx_errdoc_file
+        try:
+            nginx_errdoc_file = input('Provide local path to the needed file (in quotes, e.g. "/tmp/nginx_errdoc.tar.gz"): ')
+        except Exception, e:
+            print "ERROR in your input; try again: %s" % e
+    put(nginx_errdoc_file, '/tmp/%s' % nginx_errdoc_file)
+    remote_errdoc_dir = os.path.join(install_dir, "html") 
+    sudo('mv /tmp/%s %s/%s' % (nginx_errdoc_file, remote_errdoc_dir, nginx_errdoc_file))
+    with cd(remote_errdoc_dir):
+        sudo('tar xvzf %s' % nginx_errdoc_file)
+    print "----- nginx installed and configured -----"
     
 @_if_not_installed("pg_ctl")
 def _install_postgresql():

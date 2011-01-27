@@ -16,7 +16,7 @@ again to cleanup the environment.
 Requires fabric, boto
 
 Usage: 
-    fab -f ec__local_to_ebs_fab.py <setup | cleanup>
+    fab -f local_to_ebs_fab.py <setup | cleanup>
 """
 
 import boto, time, os, datetime, socket, yaml, sys
@@ -36,10 +36,10 @@ AMI = "emi-E02E107B"
 VOLUME_SIZE = 1             # If creating a new volume (i.e., not recreating one from a snapshot), you must specify volume size, else set to None
 SNAP_ID = None              # If recreating a volume from a snapshot, specify snap ID here, else set to None
 INSTANCE_ID = None          # If wanting to use an existing instance, specify instance ID here
-DEST_DATA_DIR = '/mnt/galaxyIndices' # Path where volume should get mounted to on the instance and data copied to, e.g., /mnt/galaxyIndices
-SRC_DATA_DIR = '/Users/afgane/tmp_loc/abyss' # Local path where data should be copied from, e.g., /local/galaxyIndices
-SNAP_DESCRIPTION = "Galaxy indices"  # Snapshot description to be saved once the snapshot is created
-DEVICE = '/dev/sdb'         # Which device to attach the volume to
+DEST_DATA_DIR = None        # Path where volume should get mounted to on the instance and data copied to, e.g., /mnt/galaxyIndices
+SRC_DATA_DIR = None         # Local path where data should be copied from, e.g., /local/galaxyIndices
+SNAP_DESCRIPTION = ""       # Snapshot description to be saved once the snapshot is created
+DEVICE = '/dev/sdb'         # Which device to attach the volume to (e.g., /dev/sdb for Eucalyptus; /dev/sdg for EC2)
 CLOUD = "eucalyptus"        # 'eucalyptus' or 'ec2'
 REGION_NAME = 'emorycloud'  # 'emorycloud' or (for AWS): eu-west-1, us-east-1, us-west-1, ap-southeast-1
 os.environ['AWS_ACCESS_KEY_ID'] = "your access key"

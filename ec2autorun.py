@@ -56,7 +56,7 @@ def _get_user_data():
     # with open('sample.yaml') as ud_yaml:
     #     ud = ud_yaml.read()
     # return ud
-                
+
 def _get_bucket_name(cluster_name, access_key):
     """Compose bucket name based on the user-provided cluster name and user access key""" 
     m = hashlib.md5()
@@ -69,7 +69,6 @@ def _isurl(path):
     #       www.google.com will fail.
     #       Should we prepend the scheme for those that don't have it and
     #       test that also?
-
     scheme, netloc, upath, uparams, uquery, ufrag = urlparse(path)
     return bool(scheme and netloc)
 
@@ -182,7 +181,6 @@ def _get_file_from_url(url):
         log.error("Boot script at '%s' not found." % url)
         return False
 
-
 def _get_boot_script(ud):
     # Test if user's bucket exists; if it does not, resort to the default
     # bucket for downloading the boot script
@@ -234,7 +232,7 @@ def _run_boot_script(boot_script_name):
     else:
         log.error("Error running boot script '%s'. Process returned code '%s' and following stderr: %s" % (script, process.returncode, stderr))
         return False
-        
+
 def _create_basic_user_data_file():
     # Create a basic YAML file that is expected by CloudMan 
     with open(USER_DATA_FILE, 'w') as ud_file:
@@ -337,21 +335,21 @@ def _handle_yaml(user_data):
     elif ud['cluster_name'] == '':
         log.warning("The cluster_name field of user data should not be empty.")
         ud['cluster_name'] = 'aGalaxyCloudManCluster_%s' % random.randrange(1, 9999999)
-
+    
     if not ud.has_key('access_key'):
         log.info("The provided user data does not contain access_key field; setting it to None..")
         ud['access_key'] = None
     elif ud['access_key'] == '' or ud['access_key'] is None:
         log.warning("The access_key field of user data should not be empty; setting it to None.")
         ud['access_key'] = None
-
+    
     if not ud.has_key('secret_key'):
         log.info("The provided user data does not contain secret_key field; setting it to None.")
         ud['secret_key'] = None
     elif ud['secret_key'] == '' or ud['secret_key'] is None:
         log.warning("The secret_key field of user data should not be empty; setting it to None.")
         ud['secret_key'] = None
-
+    
     if not ud.has_key('password'):
         log.warning("The provided user data should contain password field.")
     elif ud['password'] == '':
@@ -363,7 +361,7 @@ def _handle_yaml(user_data):
     elif ud['bucket_default'] == '':
         log.warning("The bucket_default field of user data was empty; setting it to '%s'." % DEFAULT_BUCKET_NAME)
         ud['bucket_default'] = DEFAULT_BUCKET_NAME
-
+    
     if not ud.has_key('bucket_cluster'):
         if ud['access_key'] is not None and ud['secret_key'] is not None:
             ud['bucket_cluster'] = _get_bucket_name(ud['cluster_name'], ud['access_key'])
@@ -373,7 +371,7 @@ def _handle_yaml(user_data):
     
     if not ud.has_key('cloudman_home'):
         ud['cloudman_home'] = CLOUDMAN_HOME
-        
+    
     if not ud.has_key('boot_script_name'):
         ud['boot_script_name'] = DEFAULT_BOOT_SCRIPT_NAME
     ud['boot_script_path'] = LOCAL_PATH # Marks where boot script was saved
@@ -381,7 +379,7 @@ def _handle_yaml(user_data):
     log.debug("Composed user data: %s" % ud)
     with open(USER_DATA_FILE, 'w') as ud_yaml:
         yaml.dump(ud, ud_yaml, default_flow_style=False)
-
+    
     # Get & run boot script
     if _get_boot_script(ud):
         _run_boot_script(DEFAULT_BOOT_SCRIPT_NAME)
