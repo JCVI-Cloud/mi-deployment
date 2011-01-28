@@ -96,7 +96,7 @@ def _bucket_exists(s3_conn, bucket_name):
         log.debug("Cluster bucket '%s' found." % bucket_name)
         return True
     else:
-        log.debug("User's bucket '%s' not found." % bucket_name)
+        log.debug("Cluster bucket '%s' not found." % bucket_name)
         return False
 
 def _remote_file_exists(s3_conn, bucket_name, remote_filename):
@@ -185,17 +185,21 @@ def _get_boot_script(ud):
     # Test if user's bucket exists; if it does not, resort to the default
     # bucket for downloading the boot script
     use_default_bucket = False
+    if ud.has_key('bucket_default'):
+        default_bucket_name = ud['bucket_default']
+    else:
+        default_bucket_name = DEFAULT_BUCKET_NAME
     if ud.has_key('bucket_cluster') and ud['access_key'] is not None and ud['secret_key'] is not None:
         s3_conn = _get_s3_conn(ud['access_key'], ud['secret_key'])
         # Check if user's bucket exists or use the default one
         if not _bucket_exists(s3_conn, ud['bucket_cluster']) or not _remote_file_exists(s3_conn, ud['bucket_cluster'], ud['boot_script_name']):
-            log.debug("Using default bucket '%s'" % DEFAULT_BUCKET_NAME)
+            log.debug("Using default bucket '%s'" % default_bucket_name)
             use_default_bucket = True
         else:
             log.debug("Using cluster bucket '%s'" % ud['bucket_cluster'])
             use_default_bucket = False
     else:
-        log.debug("Using default bucket '%s'" % DEFAULT_BUCKET_NAME)
+        log.debug("Defaulting to bucket '%s'" % default_bucket_name)
         use_default_bucket = True
         
     # If using user's bucket, use credentials because the script may not be accessible to everyone
@@ -207,8 +211,8 @@ def _get_boot_script(ud):
             os.chmod(os.path.join(LOCAL_PATH, DEFAULT_BOOT_SCRIPT_NAME), 0744)
     # If did not get boot script, fall back on the publicly available one
     if not got_boot_script or use_default_bucket:
-        log.debug("Could not get boot script '%s' from cluster bucket '%s'; retrieving public one '%s' from bucket '%s'" % (ud['boot_script_name'], ud['bucket_cluster'], ud['boot_script_name'], DEFAULT_BUCKET_NAME))
-        boot_script_url = os.path.join(_get_default_bucket(), ud['boot_script_name'])
+        boot_script_url = os.path.join(_get_default_bucket_url(ud), ud['boot_script_name'])
+        log.debug("Could not get boot script '%s' from cluster bucket '%s'; retrieving public one from bucket url '%s'" % (ud['boot_script_name'], ud['bucket_cluster'], boot_script_url))
         got_boot_script = _get_file_from_url(boot_script_url)
     if got_boot_script:
         log.debug("Got boot script '%s'" % os.path.join(LOCAL_PATH, DEFAULT_BOOT_SCRIPT_NAME))
@@ -248,10 +252,15 @@ def _create_basic_user_data_file():
         yaml.dump(ud_formatted, ud_file, default_flow_style=False)
     return ud_formatted
 
-def _get_default_bucket():
-    # TODO: Check if this bucket is accessible to everyone
-    bucket_url = os.path.join(SERVICE_ROOT, DEFAULT_BUCKET_NAME)
-    log.debug("Resorting to the default bucket '%s' to get boot script" % bucket_url)
+def _get_default_bucket_url(ud=None):
+    if ud and ud.has_key('bucket_default'):
+        default_bucket_name = ud['bucket_default']
+    else:
+        default_bucket_name = DEFAULT_BUCKET_NAME
+    # TODO: Check if th bucket 'default_bucket_name' is accessible to everyone 
+    # because it is being accessed as a URL
+    bucket_url = os.path.join(SERVICE_ROOT, default_bucket_name)
+    print "Default bucket url: %s" % default_bucket_name
     return bucket_url
 
 # ====================== Actions methods ======================
@@ -260,7 +269,9 @@ def _handle_empty():
     log.info("Received empty user data; assuming default contextualization")
     _create_basic_user_data_file() # This file is expected by CloudMan
     # Get & run boot script
-    _get_file_from_url(os.path.join(_get_default_bucket(), DEFAULT_BOOT_SCRIPT_NAME))
+    file_url = os.path.join(_get_default_bucket_url(), DEFAULT_BOOT_SCRIPT_NAME)
+    log.debug("Resorting to the default bucket to get boot script: %s" % file_url)
+    _get_file_from_url(file_url)
     _run_boot_script(DEFAULT_BOOT_SCRIPT_NAME)
 
 def _handle_url(url):

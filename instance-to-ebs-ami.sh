@@ -1,9 +1,9 @@
 #!/bin/bash
 # Run this script on the instance to be bundled
 
-EBS_DEVICE='/dev/sdh'
+EBS_DEVICE='/dev/sdh' # Future AMI file system volume
 EBS_MOUNT_POINT='/mnt/ebs'
-IMAGE_DEVICE='/dev/sdj'
+IMAGE_DEVICE='/dev/sdj' # Temporary vol used to copy the root file system onto during rebundling
 IMAGE_MOUNT_POINT='/mnt/tmp_ebs'
 
 mkfs.xfs -f $IMAGE_DEVICE
@@ -13,7 +13,14 @@ fi
 mkdir -m 000 -p $IMAGE_MOUNT_POINT
 mount -t xfs $IMAGE_DEVICE $IMAGE_MOUNT_POINT
 
-mkfs.xfs -f $EBS_DEVICE
+# Newer Ubuntu images use a 'LABEL=uec-rootfs' for the root file system device 
+# so check if it's present in /etc/fstab and create the future root file system 
+# using that label
+if grep -q "uec-rootfs" /etc/fstab; then
+    mkfs.xfs -f -L uec-rootfs $EBS_DEVICE
+else 
+    mkfs.xfs -f $EBS_DEVICE
+fi
 mkdir -m 000 -p $EBS_MOUNT_POINT
 mount -t xfs $EBS_DEVICE $EBS_MOUNT_POINT
 

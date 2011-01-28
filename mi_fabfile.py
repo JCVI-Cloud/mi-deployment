@@ -28,6 +28,13 @@ AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 
+# EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
+# If you do not have the following two environment variables set (AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY), provide your credentials below and uncomment the two lines:
+# os.environ['AWS_ACCESS_KEY_ID'] = "your access key"
+# os.environ['AWS_SECRET_ACCESS_KEY'] = "your secret key"
+
+
 # -- Specific setup for the Galaxy Cloud AMI
 env.user = 'ubuntu'
 env.use_sudo = True
@@ -377,6 +384,8 @@ def _install_nginx():
     put(nginx_errdoc_file, '/tmp/%s' % nginx_errdoc_file)
     remote_errdoc_dir = os.path.join(install_dir, "html") 
     sudo('mv /tmp/%s %s/%s' % (nginx_errdoc_file, remote_errdoc_dir, nginx_errdoc_file))
+    with cd(remote_errdoc_dir):
+        sudo('tar xvzf %s' % nginx_errdoc_file)
     print "----- nginx installed and configured -----"
 
 @_if_not_installed("pg_ctl")
@@ -811,14 +820,8 @@ def rebundle():
         if not region:
             print "ERROR discovering a region; try running this script again using 'rebundle' as the last argument."
             return None
-        # EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
-        # Either set the following two environment variables or provide credentials info in the constructor:
-        # AWS_ACCESS_KEY_ID - Your AWS Access Key ID
-        # AWS_SECRET_ACCESS_KEY - Your AWS Secret Access Key
-        # * OR *
-        # ec2_conn = EC2Connection('<aws access key>', '<aws secret key>')
         ec2_conn = EC2Connection(region=region)
-        vol_size = 15 # This will be the size (in GB) of the root partition of the new image
+        vol_size = 8 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
@@ -1034,7 +1037,7 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
     Create a snapshot of the EBS volume with the provided volume_id. 
     Wait until the snapshot process is complete (note that this may take quite a while)
     """
-    print "Initiating snapshot of EBS volume '%s'" % volume_id
+    print "Initiating snapshot of EBS volume '%s' in region '%s'" % (volume_id, ec2_conn.region.name)
     snapshot = ec2_conn.create_snapshot(volume_id, description=description)
     if snapshot: 
         while snapshot.status != 'completed':
