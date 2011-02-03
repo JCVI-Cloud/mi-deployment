@@ -279,6 +279,7 @@ def _required_packages():
                 'postgresql',
                 'gfortran',
                 'python-rpy',
+                'openjdk-6-jdk',
                 'r-cran-qvalue', # required by Compute q-values
                 'r-bioc-hilbertvis', # required by HVIS
                 'tcl-dev', # required by various R modules
@@ -637,13 +638,9 @@ def update_galaxy_code():
     
     # Create a new snapshot of external volume
     if boto:
-        # EDIT FOLLOWING LINE IF NEEDED/DESIRED:
-        # Either set the following two environment variables or provide credentials info in the constructor:
-        # AWS_ACCESS_KEY_ID - Your AWS Access Key ID
-        # AWS_SECRET_ACCESS_KEY - Your AWS Secret Access Key
-        # ec2_conn = EC2Connection('<aws access key>', '<aws secret key>')
-        ec2_conn = EC2Connection()
-        
+        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
+        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
+        ec2_conn = _get_ec2_conn(instance_region)
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         # In lack of a better method... ask the user
@@ -791,7 +788,6 @@ def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
         return False
 
 # == Machine image rebundling code
-
 def rebundle():
     """
     Rebundles the EC2 instance that is passed as the -H parameter
@@ -810,17 +806,7 @@ def rebundle():
         # Select appropriate region:
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         instance_region = availability_zone[:-1] # Truncate zone letter to get region name
-        regions = boto.ec2.regions()
-        print "Found regions: %s; trying to match to instance region: %s" % (regions, instance_region)
-        region = None
-        for r in regions:
-            if instance_region in r.name:
-                region = r
-                break
-        if not region:
-            print "ERROR discovering a region; try running this script again using 'rebundle' as the last argument."
-            return None
-        ec2_conn = EC2Connection(region=region)
+        ec2_conn = _get_ec2_conn(instance_region)
         vol_size = 8 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
@@ -1074,3 +1060,21 @@ def _clean():
     for cf in ['%s/ec2autorun.py.log' % env.install_dir, '/var/crash/*', '/var/log/firstboot.done', '$HOME/.nx_setup_done']:
         if exists(cf):
             sudo('rm -f %s' % cf)
+
+def _get_ec2_conn(instance_region='us-east-1'):
+    regions = boto.ec2.regions()
+    print "Found regions: %s; trying to match to instance region: %s" % (regions, instance_region)
+    region = None
+    for r in regions:
+        if instance_region in r.name:
+            region = r
+            break
+    if not region:
+        print "ERROR discovering a region; try running this script again using 'rebundle' as the last argument."
+        return None
+    try:
+        ec2_conn = EC2Connection(region=region)
+        return ec2_conn
+    except EC2ResponseError, e:
+        print "ERROR getting EC2 connections: %s" % e
+        return None
