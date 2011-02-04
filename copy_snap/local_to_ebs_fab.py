@@ -32,8 +32,8 @@ from fabric.context_managers import settings as v_settings # virtualized setting
 # below (http://uec-images.ubuntu.com/releases/10.04/release/). Also, for 
 # eucalyptus cloud: emi-<###>; for EC2: ami-<###>
 # Sample AMI/EMI: "ami-b8f405d1", "emi-E02E107B"
-AMI = "emi-E02E107B"
-VOLUME_SIZE = 1             # If creating a new volume (i.e., not recreating one from a snapshot), you must specify volume size, else set to None
+AMI = ""
+VOLUME_SIZE = 0             # If creating a new volume (i.e., not recreating one from a snapshot), you must specify volume size, else set to None
 SNAP_ID = None              # If recreating a volume from a snapshot, specify snap ID here, else set to None
 INSTANCE_ID = None          # If wanting to use an existing instance, specify instance ID here
 DEST_DATA_DIR = None        # Path where volume should get mounted to on the instance and data copied to, e.g., /mnt/galaxyIndices

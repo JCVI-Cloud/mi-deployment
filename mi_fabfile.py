@@ -820,7 +820,7 @@ def rebundle():
         image_id = None
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
         if instance_id and availability_zone and kernel_id:
-            print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, region.name)
+            print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
                 vol = ec2_conn.create_volume(vol_size, availability_zone)

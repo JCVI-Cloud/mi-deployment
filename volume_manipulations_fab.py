@@ -198,15 +198,22 @@ def _clean_galaxy_dir():
         sudo("ln -s /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % GALAXY_HOME)
         if tmp_loc:
             sudo("rm /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
-        # Upload the custom cloud welcome screen files
+        # If needed, upload the custom cloud welcome screen files
         if not exists("%s/static/images/cloud.gif" % GALAXY_HOME):
             sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (GALAXY_HOME, CDN_ROOT_URL))
         if not exists("%s/static/images/cloud_txt.png" % GALAXY_HOME):
             sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (GALAXY_HOME, CDN_ROOT_URL))
-        sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (GALAXY_HOME, CDN_ROOT_URL))
+        if not exists("%s/static/welcome.html" % GALAXY_HOME):
+            sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (GALAXY_HOME, CDN_ROOT_URL))
+    # Clean up configuration files form the snapshot to ensure those get
+    # downloaded from cluster's (or default) bucket at cluster instantiation
     if exists("%s/universe_wsgi.ini.cloud" % GALAXY_HOME):
         sudo("rm %s/universe_wsgi.ini.cloud" % GALAXY_HOME)
-    sudo('su galaxy -c "cd %s; wget http://s3.amazonaws.com/%s/universe_wsgi.ini.cloud"' % (GALAXY_HOME, DEFAULT_BUCKET_NAME))
+    if exists("%s/tool_conf.xml.cloud" % GALAXY_HOME):
+        sudo("rm %s/tool_conf.xml.cloud" % GALAXY_HOME)
+    if exists("%s/tool_data_table_conf.xml.cloud" % GALAXY_HOME):
+        sudo("rm %s/tool_data_table_conf.xml.cloud" % GALAXY_HOME)
+    
 
 def _start_galaxy():
     answer = confirm("Would you like to start Galaxy on instance?")
