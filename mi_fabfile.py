@@ -23,6 +23,7 @@ except:
 from fabric.api import sudo, run, env, cd, put, local
 from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings, hide, contains, append
+from fabric.colors import red, green
 
 AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
@@ -305,7 +306,7 @@ def _add_user(username):
     if not contains(username, '/etc/passwd'):
         print "User '%s' not found, adding it now" % username
         sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" %s' % (username, username))
-        print "Added user '%s'" % username
+        print(green("Added user '%s'" % username))
 
 # == required programs
 
@@ -337,7 +338,7 @@ def _get_sge():
             run("wget %s" % url)
             sudo("chown %s %s" % (env.user, install_dir))
             run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
-            print "----- SGE downloaded and extracted to '%s' -----" % install_dir
+            print(green("----- SGE downloaded and extracted to '%s' -----" % install_dir))
 
 # @_if_not_installed("nginx") # FIXME: this call is actually going to start nginx and never return...
 def _install_nginx():
@@ -350,7 +351,7 @@ def _install_nginx():
             # Maybe this can be untared to tmp dir and removed after installation?
             sudo("chown %s %s" % (env.user, install_dir))
             run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
-            print "----- nginx upload module downloaded and extracted to '%s' -----" % install_dir
+            print(green("----- nginx upload module downloaded and extracted to '%s' -----" % install_dir))
     
     version = "0.7.67"
     url = "http://nginx.org/download/nginx-%s.tar.gz" % version
@@ -377,7 +378,7 @@ def _install_nginx():
     with cd(remote_errdoc_dir):
         sudo("wget %s" % url)
         sudo('tar xvzf %s' % nginx_errdoc_file)
-    print "----- nginx installed and configured -----"
+    print(green("----- nginx installed and configured -----"))
 
 @_if_not_installed("pg_ctl")
 def _install_postgresql():
@@ -395,7 +396,7 @@ def _install_postgresql():
                     run("make")
                 sudo("make install")
                 sudo("cd %s; stow postgresql" % env.install_dir)
-                print "----- PostgreSQL installed -----"
+                print(green("----- PostgreSQL installed -----"))
 
 def _configure_postgresql(delete_main_dbcluster=False):
     """ This method is intended for cleaning up the installation when
@@ -411,7 +412,7 @@ def _configure_postgresql(delete_main_dbcluster=False):
     if delete_main_dbcluster:
         sudo('su postgres -c"pg_dropcluster --stop %s main"' % pg_ver)
     append("export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver, "/etc/bash.bashrc", use_sudo=True)
-    print "----- PostgreSQL configured -----"
+    print(green("----- PostgreSQL configured -----"))
 
 @_if_not_installed("easy_install")
 def _install_setuptools():
@@ -422,7 +423,7 @@ def _install_setuptools():
         with cd(work_dir):
             run("wget %s" % url)
             sudo("sh %s" % os.path.split(url)[1].split('#')[0])
-            print "----- setuptools installed -----"
+            print(green("----- setuptools installed -----"))
 
 def _install_openmpi():
     version = "1.4.2"
@@ -439,7 +440,7 @@ def _install_openmpi():
                     sudo("make all install")
                     sudo("cd %s; stow openmpi" % env.install_dir)
                     # append("export PATH=%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
-                print "----- OpenMPI installed to %s -----" % install_dir
+                print(green("----- OpenMPI installed to %s -----" % install_dir))
 
 def _install_r_packages():
     f = tempfile.NamedTemporaryFile()
@@ -469,7 +470,7 @@ def _install_boto():
         sudo("git clone http://github.com/boto/boto.git")
         with cd(install_dir):
             sudo("python setup.py install")
-            print("----- boto installed -----")
+            print(green("----- boto installed -----"))
 
 # == environment
 
@@ -492,7 +493,7 @@ def _configure_ec2_autorun():
     put(cloudman_boot_file, '/tmp/%s' % cloudman_boot_file) # Because of permissions issue
     sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (cloudman_boot_file, cloudman_boot_file, cloudman_boot_file))
     os.remove(cloudman_boot_file)
-    print "----- ec2_autorun added to upstart -----"
+    print(green("----- ec2_autorun added to upstart -----"))
     
     # Create upstart configuration file for RabbitMQ
     rabbitmq_server_conf = 'rabbitmq-server.conf'
@@ -503,7 +504,7 @@ def _configure_ec2_autorun():
     os.remove(rabbitmq_server_conf)
     # Stop the init.d script
     sudo('/usr/sbin/update-rc.d -f rabbitmq-server remove')
-    print "----- RabbitMQ added to upstart -----"
+    print(green("----- RabbitMQ added to upstart -----"))
 
 def _configure_sge():
     """This method only sets up the environment for SGE w/o actually setting up SGE"""
@@ -577,7 +578,7 @@ def _configure_xvfb():
     sudo("ln -s /etc/init.d/xvfb /etc/rc5.d/S99xvfb")
     sudo("ln -s /etc/init.d/xvfb /etc/rc6.d/K01xvfb")
     sudo("mkdir /var/lib/xvfb; chown root:root /var/lib/xvfb; chmod 0755 /var/lib/xvfb")
-    print "----- configured xvfb -----"
+    print(green("----- configured xvfb -----"))
 
 # == Machine image rebundling code
 def rebundle():
@@ -620,7 +621,7 @@ def rebundle():
                 # TODO: wait until it becomes 'available'
                 print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
             except EC2ResponseError, e:
-                print "Error creating volume: %s" % e
+                print(red("Error creating volume: %s" % e))
                 return False
             
             if vol:
@@ -628,11 +629,11 @@ def rebundle():
                     # Attach newly created volumes to the instance
                     dev_id = '/dev/sdh'
                     if not _attach(ec2_conn, instance_id, vol.id, dev_id):
-                        print "Error attaching volume '%s' to the instance. Aborting." % vol.id
+                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
                         return False
                     dev_id = '/dev/sdj'
                     if not _attach(ec2_conn, instance_id, vol2.id, dev_id):
-                        print "Error attaching volume '%s' to the instance. Aborting." % vol2.id
+                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
                         return False
                     # Move the file system onto the new volume (with a help of a script)
                     url = os.path.join(REPO_ROOT_URL, "instance-to-ebs-ami.sh")
@@ -684,24 +685,23 @@ def rebundle():
                         ec2_conn.delete_volume(vol.id)
                     print "Deleting the volume (%s) used for rsync only" % vol2.id
                     ec2_conn.delete_volume(vol2.id)
-                    print "--------------------------"
-                    print "Finished creating new machine image. Image ID: '%s'" % (image_id)
-                    # print "MAKE SURE to upload a new contextualization script to the 'ssfg' bucket on S3 named 'customizeEC2instance_%s.zip' AND (if this AMI is to be made public) give it read permission for everyone." % image_id
-                    print "--------------------------"
+                    print(green("--------------------------"))
+                    print(green("Finished creating new machine image. Image ID: '%s'" % (image_id)))
+                    print(green("--------------------------"))
                     answer = confirm("Would you like to make this machine image public?", default=False)
                     if image_id and answer:
                         ec2_conn.modify_image_attribute(image_id, attribute='launchPermission', operation='add', groups=['all'])
                 except EC2ResponseError, e:
-                    print "Error creating image: %s" % e
+                    print(red("Error creating image: %s" % e))
                     return False
             else:
-                print "Error creating new volume"
+                print(red("Error creating new volume"))
                 return False
         else:
-            print "Error retrieving instance availability zone"
+            print(red("Error retrieving instance availability zone"))
             return False            
     else:
-        print "Python boto library not available. Aborting."
+        print(red("Python boto library not available. Aborting."))
         return False
     time_end = dt.datetime.utcnow()
     print "Duration of instance rebundling: %s" % str(time_end-time_start)
@@ -739,26 +739,26 @@ def _reboot(ec2_conn, instance_id, force=False):
                         print "Checking ssh connectivity to instance '%s'" % env.hosts[0]
                         ssh = local('ssh -o StrictHostKeyChecking=no -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
                     if ssh.return_code == 0:
-                        print "\n--------------------------"
-                        print "Machine '%s' is alive" % env.hosts[0]
-                        print "This script will exit now. Invoke it again while passing method name 'rebundle' as the last argument to the fab script."
-                        print "--------------------------\n"
+                        print(green("\n--------------------------"))
+                        print(green("Machine '%s' is alive" % env.hosts[0]))
+                        print(green("This script will exit now. Invoke it again while passing method name 'rebundle' as the last argument to the fab script."))
+                        print(green("--------------------------\n"))
                         return True
                     else:
                         print "Still waiting..."
                         time.sleep(3)
                     if i == 29:
-                        print "Machine '%s' did not respond for while now, aborting" % env.hosts[0]
+                        print(red("Machine '%s' did not respond for while now, aborting" % env.hosts[0]))
                         return True
             except EC2ResponseError, e:
-                print("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e))
+                print(red("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e)))
                 return False
             except Exception, e:
-                print("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e))
-                print("Try running this script again with 'rebundle' as the last argument.")
+                print(red("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e)))
+                print(red("Try running this script again with 'rebundle' as the last argument."))
                 return False
         else:
-            print "Cannot rebundle without instance reboot. Aborting rebundling."
+            print(red("Cannot rebundle without instance reboot. Aborting rebundling."))
             return False
 
 def _attach( ec2_conn, instance_id, volume_id, device ):
@@ -779,7 +779,7 @@ def _attach( ec2_conn, instance_id, volume_id, device ):
             print "Volume '%s' attached to instance '%s' as device '%s'" % ( volume_id, instance_id, device )
             break
         if counter == 29:
-            print "Volume '%s' FAILED to attach to instance '%s' as device '%s'. Aborting." % ( volume_id, instance_id, device )
+            print(red("Volume '%s' FAILED to attach to instance '%s' as device '%s'. Aborting." % ( volume_id, instance_id, device )))
             return False
         
         volumes = ec2_conn.get_all_volumes( [volume_id] )
@@ -795,7 +795,7 @@ def _detach( ec2_conn, instance_id, volume_id ):
     try:
         volumestatus = ec2_conn.detach_volume( volume_id, instance_id, force=True )
     except EC2ResponseError, ( e ):
-        print "Detaching volume '%s' from instance '%s' failed. Exception: %s" % ( volume_id, instance_id, e )
+        print(red("Detaching volume '%s' from instance '%s' failed. Exception: %s" % ( volume_id, instance_id, e )))
         return False
     
     for counter in range( 30 ):
@@ -804,7 +804,7 @@ def _detach( ec2_conn, instance_id, volume_id ):
             print "Volume '%s' successfully detached from instance '%s'." % ( volume_id, instance_id )
             break
         if counter == 29:
-            print "Volume '%s' FAILED to detach to instance '%s'." % ( volume_id, instance_id )
+            print(red("Volume '%s' FAILED to detach to instance '%s'." % ( volume_id, instance_id )))
         time.sleep( 3 )
         volumes = ec2_conn.get_all_volumes( [volume_id] )
         volumestatus = volumes[0].status
@@ -821,10 +821,10 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
             print "Snapshot '%s' progress: '%s'; status: '%s'" % (snapshot.id, snapshot.progress, snapshot.status)
             time.sleep(6)
             snapshot.update()
-        print "Creation of snapshot for volume '%s' completed: '%s'" % (volume_id, snapshot)
+        print(green("Creation of snapshot for volume '%s' completed: '%s'" % (volume_id, snapshot)))
         return snapshot.id
     else:
-        print "Could not create snapshot from volume with ID '%s'" % volume_id
+        print(red("Could not create snapshot from volume with ID '%s'" % volume_id))
         return False
 
 def _clean_rabbitmq_env():
@@ -861,11 +861,11 @@ def _get_ec2_conn(instance_region='us-east-1'):
             region = r
             break
     if not region:
-        print "ERROR discovering a region; try running this script again using 'rebundle' as the last argument."
+        print(red("ERROR discovering a region; try running this script again using 'rebundle' as the last argument."))
         return None
     try:
         ec2_conn = EC2Connection(region=region)
         return ec2_conn
     except EC2ResponseError, e:
-        print "ERROR getting EC2 connections: %s" % e
+        print(red("ERROR getting EC2 connections: %s" % e))
         return None
