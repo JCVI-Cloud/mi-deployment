@@ -1,32 +1,33 @@
-"""Fabric deployment file to set up a Galaxy AMI and/or update Galaxy source code
-on an external EBS volume. Currently, targeted at Amazon's EC2 (http://aws.amazon.com/ec2/)
+"""Fabric deployment file to set up a Galaxy CloudMan AMI. 
+Currently, targeted for Amazon's EC2 (http://aws.amazon.com/ec2/)
 
 Fabric (http://docs.fabfile.org) is used to manage the automation of
 a remote server.
 
 Usage:
-    fab -f mi_fabfile.py -H servername -i full_path_to_private_key_file <configure_MI | rebundle | update_galaxy_code>
+    fab -f mi_fabfile.py -i full_path_to_private_key_file -H servername <configure_MI | rebundle>
 """
-import os, os.path, time, contextlib, urllib, yaml, tempfile
+import os, os.path, time, contextlib, tempfile
 import datetime as dt
 from contextlib import contextmanager
 try:
     boto = __import__("boto")
     from boto.ec2.connection import EC2Connection
-    from boto.s3.connection import S3Connection
-    from boto.s3.key import Key
-    from boto.exception import EC2ResponseError, S3ResponseError
+    from boto.exception import EC2ResponseError
     from boto.ec2.blockdevicemapping import BlockDeviceType, BlockDeviceMapping
 except:
     boto = None
 
-from fabric.api import *
-from fabric.contrib.files import *
+# from fabric.api import *
+# from fabric.contrib.files import *
+from fabric.api import sudo, run, env, cd, put, local
 from fabric.contrib.console import confirm
+from fabric.contrib.files import exists, settings, hide, contains, append
 
 AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
+REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 
 # EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
 # If you do not have the following two environment variables set (AWS_ACCESS_KEY_ID,
@@ -365,27 +366,16 @@ def _install_nginx():
                 sudo("cd %s; stow nginx" % env.install_dir)
                 
     nginx_conf_file = 'nginx.conf'
-    while not os.path.exists(nginx_conf_file):
-        print "ERROR: failed to find local configuration file '%s' for nginx" % nginx_conf_file
-        try:
-            nginx_conf_file = input('Provide local path to the needed file (in quotes, e.g. "/tmp/nginx.conf"): ')
-        except Exception, e:
-            print "ERROR in your input; try again: %s" % e
-    remote_conf_dir = os.path.join(install_dir, "conf", nginx_conf_file)
-    put(nginx_conf_file, '/tmp/%s' % nginx_conf_file)
-    sudo('mv /tmp/%s %s' % (nginx_conf_file, remote_conf_dir))
+    url = os.path.join(REPO_ROOT_URL, nginx_conf_file)
+    remote_conf_dir = os.path.join(install_dir, "conf")
+    with cd(remote_conf_dir):
+        sudo("wget %s" % url)
     
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
-    while not os.path.exists(nginx_errdoc_file):
-        print "ERROR: failed to find local errdoc file '%s' for nginx" % nginx_errdoc_file
-        try:
-            nginx_errdoc_file = input('Provide local path to the needed file (in quotes, e.g. "/tmp/nginx_errdoc.tar.gz"): ')
-        except Exception, e:
-            print "ERROR in your input; try again: %s" % e
-    put(nginx_errdoc_file, '/tmp/%s' % nginx_errdoc_file)
-    remote_errdoc_dir = os.path.join(install_dir, "html") 
-    sudo('mv /tmp/%s %s/%s' % (nginx_errdoc_file, remote_errdoc_dir, nginx_errdoc_file))
+    url = os.path.join(REPO_ROOT_URL, nginx_errdoc_file)
+    remote_errdoc_dir = os.path.join(install_dir, "html")
     with cd(remote_errdoc_dir):
+        sudo("wget %s" % url)
         sudo('tar xvzf %s' % nginx_errdoc_file)
     print "----- nginx installed and configured -----"
 
@@ -492,7 +482,7 @@ def _configure_environment():
     _configure_xvfb()
 
 def _configure_ec2_autorun():
-    url = "%s/ec2autorun.py" % CDN_ROOT_URL
+    url = os.path.join(REPO_ROOT_URL, "ec2autorun.py")
     with cd(env.install_dir):
         sudo("wget %s" % url)
     # Create upstart configuration file for boot-time script
@@ -589,204 +579,6 @@ def _configure_xvfb():
     sudo("mkdir /var/lib/xvfb; chown root:root /var/lib/xvfb; chmod 0755 /var/lib/xvfb")
     print "----- configured xvfb -----"
 
-def update_galaxy_code():
-    """Pull the latest Galaxy code from bitbucket, update and offer to create a 
-    a new snapshot.
-    In order for this to work, an Galaxy CloudMan master instance on EC2 needs to
-    be running with a volume where Galaxy is stored attached. The script will 
-    then update the Galaxy source and offer to update relevant files.
-    This script may also be useful when updating and snapshoting tools that are 
-    stored on the same volume as Galaxy.  
-    """
-    galaxy_home = "/mnt/galaxyTools/galaxy-central"
-    if exists("%s/paster.pid" % galaxy_home):
-        sudo('su galaxy -c "cd %s; sh run.sh --stop-daemon"' % galaxy_home)
-    
-    # Because of a conflict in static/welcome.html file on cloud Galaxy and the
-    # main Galaxy repository, force local change to persist in case of a merge
-    sudo('su galaxy -c "cd %s; hg --config ui.merge=internal:local pull --update"' % galaxy_home)
-    commit_num = sudo('su galaxy -c "cd %s; hg tip | grep changeset | cut -d: -f2 "' % galaxy_home).strip()
-    # A vanilla datatypes_conf is used so to make sure it's up to date delete it; it will be automatically recreated.
-    if exists("%s/datatypes_conf.xml" % galaxy_home):
-        sudo('cd %s; rm datatypes_conf.xml' % galaxy_home)
-    sudo('su galaxy -c "cd %s; sh manage_db.sh upgrade"' % galaxy_home)
-    
-    # Clean up galaxy directory before snapshoting
-    with settings(warn_only=True):
-        if exists("%s/paster.log" % galaxy_home):
-            sudo("rm %s/paster.log" % galaxy_home)
-        sudo("rm %s/database/pbs/*" % galaxy_home)
-        # set up the symlink for SAMTOOLS (remove this code once SAMTOOLS is converted to data tables)
-        if exists("%s/tool-data/sam_fa_indices.loc" % galaxy_home):
-            sudo("rm %s/tool-data/sam_fa_indices.loc" % galaxy_home)
-        tmp_loc = False
-        if not exists("/mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc"):
-            sudo("touch /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
-            tmp_loc = True
-        sudo("ln -s /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % galaxy_home)
-        if tmp_loc:
-            sudo("rm /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
-        # Upload the custom cloud welcome screen files
-        if not exists("%s/static/images/cloud.gif" % galaxy_home):
-            sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (galaxy_home, CDN_ROOT_URL))
-        if not exists("%s/static/images/cloud_txt.png" % galaxy_home):
-            sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (galaxy_home, CDN_ROOT_URL))
-        sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (galaxy_home, CDN_ROOT_URL))
-    if exists("%s/universe_wsgi.ini.cloud" % galaxy_home):
-        sudo("rm %s/universe_wsgi.ini.cloud" % galaxy_home)
-    sudo('su galaxy -c "cd %s; wget http://s3.amazonaws.com/cloudman/universe_wsgi.ini.cloud"' % galaxy_home)
-    
-    # Create a new snapshot of external volume
-    if boto:
-        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
-        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
-        ec2_conn = _get_ec2_conn(instance_region)
-        # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
-        instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
-        # In lack of a better method... ask the user
-        # vol_id = raw_input("What is the volume ID where Galaxy is stored (should be the one attached as device /dev/sdg)? ")
-        vol_list = ec2_conn.get_all_volumes()
-        # Detect the volume ID of EBS volume where Galaxy is installed:
-        # - find out what device is galaxyTools mounted to
-        # - then search for given volume    
-        device_id = sudo("df | grep '%s' | awk '{print $1}'" % os.path.split(galaxy_home)[0])
-        print "Detected device '%s' as being the one where Galaxy is stored" % device_id
-        galaxy_tools_vol = None
-        for vol in vol_list:
-            if vol.attach_data.instance_id==instance_id and vol.attach_data.status=='attached' and vol.attach_data.device == device_id:
-                galaxy_tools_vol = vol
-        if galaxy_tools_vol:
-            sudo("umount %s" % os.path.split(galaxy_home)[0])
-            _detach(ec2_conn, instance_id, galaxy_tools_vol.id)
-            desc = "Galaxy (at commit %s) and tools" % commit_num
-            snap_id = _create_snapshot(ec2_conn, galaxy_tools_vol.id, desc)
-            print "--------------------------"
-            print "New snapshot ID: %s" % snap_id
-            # print "Don't forget to update the file 'snaps-latest.txt' in 'galaxy-snapshots' bucket on S3 with the following line:"
-            # print "TOOLS=%s|%s" % (snap_id, str(galaxy_tools_vol.size))
-            print "--------------------------"
-            answer = confirm("Would you like to update the file 'snaps.yaml' in 'cloudman' bucket on S3 to include reference to the new snapshot ID: '%s'" % snap_id)
-            if answer:
-                _update_snaps_latest_file('galaxyTools', snap_id, galaxy_tools_vol.size, commit_num='Galaxy at commit %s' % commit_num)
-            
-            answer = confirm("Would you like to make the newly created snapshot '%s' public (you should if snaps.yaml in the previous question was updated)?" % snap_id)
-            if answer:
-                ec2_conn.modify_snapshot_attribute(snap_id, attribute='createVolumePermission', operation='add', groups=['all'])
-            
-            answer = confirm("Would you like to attach the *old* volume '%s' (but with updated Galaxy) used to make the new snapshot back to instance '%s' and mount it?" % (galaxy_tools_vol.id, instance_id))
-            if answer:
-                _attach(ec2_conn, instance_id, galaxy_tools_vol.id, device_id)
-                sudo("mount %s %s" % (device_id, os.path.split(galaxy_home)[0]))
-                _start_galaxy()
-            elif confirm("Would you like to create a new volume from the *new* snapshot '%s', attach it to the instance '%s' and mount it?" % (snap_id, instance_id)):
-                try:
-                    new_vol = ec2_conn.create_volume(galaxy_tools_vol.size, galaxy_tools_vol.zone, snapshot=snap_id)
-                    print "Created new volume of size '%s' from snapshot '%s' with ID '%s'" % (new_vol.size, snap_id, new_vol.id)
-                    _attach(ec2_conn, instance_id, new_vol.id, device_id)
-                    sudo("mount %s %s" % (device_id, os.path.split(galaxy_home)[0]))
-                    _start_galaxy()
-                except EC2ResponseError, e:
-                    print "Error creating volume: %s" % e
-            print "----- Done updating Galaxy code -----"
-        else:
-            print "ERROR: Unable to 'discover' Galaxy volume id; volume not snapshoted"
-
-def _start_galaxy():
-    answer = confirm("Would you like to start Galaxy on instance?")
-    if answer:
-        sudo('su galaxy -c "source /etc/bash.bashrc; source /home/galaxy/.bash_profile; export SGE_ROOT=/opt/sge; cd /mnt/galaxyTools/galaxy-central; sh run.sh --daemon"')
-
-def _update_snaps_latest_file(filesystem, snap_id, vol_size, **kwargs):
-    bucket_name = 'cloudman'
-    remote_file_name = 'snaps.yaml'
-    remote_url = 'http://s3.amazonaws.com/%s/%s' % (bucket_name, remote_file_name)
-    downloaded_local_file = "downloaded_snaps-latest.yaml"
-    old_remote_file = generated_local_file = "snaps.yaml"
-    urllib.urlretrieve(remote_url, downloaded_local_file)
-    with open(downloaded_local_file) as f:
-        snaps_dict = yaml.load(f)
-    for fs in snaps_dict['static_filesystems']:
-        if fs['filesystem'] == filesystem:
-            fs['snap_id'] = snap_id
-            fs['size'] = vol_size
-    with open(generated_local_file, 'w') as f:
-        yaml.dump(snaps_dict, f, default_flow_style=False)
-    # Rename current old_remote_file to include date it was last modified
-    date_uploaded = _get_date_file_last_modified_on_S3(bucket_name, old_remote_file)
-    new_name_for_old_snaps_file = "snaps-%s.yaml" % date_uploaded
-    _rename_file_in_S3(new_name_for_old_snaps_file, bucket_name, old_remote_file)
-    # Save the new file to S3
-    return _save_file_to_bucket(bucket_name, remote_file_name, generated_local_file, **kwargs)
-
-def _get_bucket(bucket_name):
-    s3_conn = S3Connection()
-    b = None
-    for i in range(0, 5):
-		try:
-			b = s3_conn.get_bucket(bucket_name)
-			break
-		except S3ResponseError: 
-			print "Bucket '%s' not found, attempt %s/5" % (bucket_name, i)
-			return None
-    return b
-
-def _get_date_file_last_modified_on_S3(bucket_name, file_name):
-    """Return date file_name was last modified in format YYYY-MM-DD"""
-    b = _get_bucket(bucket_name)
-    if b is not None:
-        try:
-            k = b.get_key(file_name)
-            lm = k.last_modified
-            mlf = time.strptime(lm, "%a, %d %b %Y %H:%M:%S GMT")
-            return time.strftime("%Y-%m-%d", mlf)
-        except S3ResponseError, e:
-            print "Failed to get file '%s' from bucket '%s': %s" % (file_name, bucket_name, e)
-            return ""
-    	except ValueError, e:
-            print "Failed to format file '%s' last modified: %s" % (file_name, e)
-    	    return ""
-
-def _rename_file_in_S3(new_key_name, bucket_name, old_key_name):
-    b = _get_bucket(bucket_name)
-    if b is not None:
-        try:
-            k = b.get_key(old_key_name) # copy any metadata too
-            b.copy_key(new_key_name, bucket_name, old_key_name, metadata=k.metadata, preserve_acl=True)
-            print "Successfully renamed file '%s' in bucket '%s' to '%s'." % (old_key_name, bucket_name, new_key_name)
-            return True
-        except S3ResponseError, e:
-    	     print "Failed to rename file '%s' in bucket '%s' as file '%s': %s" % (old_key_name, bucket_name, new_key_name, e)
-    	     return False
-
-def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
-    """ Save the local_file to bucket_name as remote_filename. Also, any additional
-    arguments passed as key-value pairs, are stored as file's metadata on S3."""
-    # print "Establishing handle with bucket '%s'..." % bucket_name
-    b = _get_bucket(bucket_name)
-    if b is not None:
-        # print "Establishing handle with key object '%s'..." % remote_filename
-        k = Key( b, remote_filename )
-        print "Attempting to save file '%s' to bucket '%s'..." % (remote_filename, bucket_name)
-        try:
-            # Store some metadata (key-value pairs) about the contents of the file being uploaded
-            # Note that the metadata must be set *before* writing the file
-            k.set_metadata('date_uploaded', str(dt.datetime.utcnow()))
-            for args_key in kwargs:
-                print "Adding metadata to file '%s': %s=%s" % (remote_filename, args_key, kwargs[args_key])
-                k.set_metadata(args_key, kwargs[args_key])
-            print "Saving file '%s'" % local_file
-            k.set_contents_from_filename(local_file)
-            print "Successfully added file '%s' to bucket '%s'." % (remote_filename, bucket_name)
-            answer = confirm("Would you like to make file '%s' publicly readable?" % remote_filename)
-            if answer:
-                k.make_public()
-        except S3ResponseError, e:
-            print "Failed to save file local file '%s' to bucket '%s' as file '%s': %s" % ( local_file, bucket_name, remote_filename, e )
-            return False
-        return True
-    else:
-        return False
-
 # == Machine image rebundling code
 def rebundle():
     """
@@ -842,9 +634,8 @@ def rebundle():
                     if not _attach(ec2_conn, instance_id, vol2.id, dev_id):
                         print "Error attaching volume '%s' to the instance. Aborting." % vol2.id
                         return False
-                    # Move the file system onto the new volume
-                    # TODO: This should be downloaded from elsewhere
-                    url = '%s/instance-to-ebs-ami.sh' % CDN_ROOT_URL
+                    # Move the file system onto the new volume (with a help of a script)
+                    url = os.path.join(REPO_ROOT_URL, "instance-to-ebs-ami.sh")
                     # with contextlib.nested(cd('/tmp'), settings(hide('stdout', 'stderr'))):
                     with cd('/tmp'):
                         if exists('/tmp/'+os.path.split(url)[1]):
