@@ -1,25 +1,24 @@
-"""Fabric deployment file perform some volume manipulations to a running EC2 instance 
+"""Fabric deployment script for creating a snapshot from an EBS volume while
+automatically taking care of the system level operations.
 
 Fabric (http://docs.fabfile.org) is used to manage the automation of a remote server.
 
 Usage:
-    fab -f volume_manipulations_fab.py -i full_path_to_private_key_file -H servername <snapshot_volume | update_galaxy_code>
+    fab -f volume_manipulations_fab.py -i full_path_to_private_key_file -H servername make_snapshot[:galaxy]
 """
 
 import os, os.path, time, urllib, yaml
 import datetime as dt
-try:
-    boto = __import__("boto")
-    from boto.ec2.connection import EC2Connection
-    from boto.s3.connection import S3Connection
-    from boto.s3.key import Key
-    from boto.exception import EC2ResponseError, S3ResponseError
-except:
-    boto = None
+boto = __import__("boto")
+from boto.ec2.connection import EC2Connection
+from boto.s3.connection import S3Connection
+from boto.s3.key import Key
+from boto.exception import EC2ResponseError, S3ResponseError
 
 from fabric.api import sudo, run, env
 from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings
+from fabric.colors import red, green
 
 GALAXY_HOME = "/mnt/galaxyTools/galaxy-central"
 DEFAULT_BUCKET_NAME = 'cloudman'
@@ -38,134 +37,89 @@ env.user = 'ubuntu'
 env.use_sudo = True
 env.shell = "/bin/bash -l -c"
 
-def update_galaxy_code():
-    """Pull the latest Galaxy code from bitbucket, update and offer to create a 
-    a new snapshot.
-    In order for this to work, an Galaxy CloudMan master instance on EC2 needs to
-    be running with a volume where Galaxy is stored attached. The script will 
-    then update the Galaxy source and offer to update relevant files.
-    This script may also be useful when updating and snapshoting tools that are 
-    stored on the same volume as Galaxy.  
-    """
-    time_start = dt.datetime.utcnow()
-    print "Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)
-    commit_num = _update_galaxy()
-    _clean_galaxy_dir()
-    
-    # Create a new snapshot of external volume
-    if boto:
-        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
-        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
-        ec2_conn = _get_ec2_conn(instance_region)
-        instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
-        vol_list = ec2_conn.get_all_volumes()
-        # Detect the volume ID of EBS volume where Galaxy is installed:
-        # - find out what device is galaxyTools mounted to
-        # - then search for given volume    
-        device_id = sudo("df | grep '%s' | awk '{print $1}'" % os.path.split(GALAXY_HOME)[0])
-        print "Detected device '%s' as being the one where Galaxy is stored" % device_id
-        galaxy_tools_vol = None
-        for vol in vol_list:
-            if vol.attach_data.instance_id==instance_id and vol.attach_data.status=='attached' and vol.attach_data.device == device_id:
-                galaxy_tools_vol = vol
-        if galaxy_tools_vol:
-            sudo("umount %s" % os.path.split(GALAXY_HOME)[0])
-            _detach(ec2_conn, instance_id, galaxy_tools_vol.id)
-            desc = "Galaxy (at commit %s) and tools" % commit_num
-            snap_id = _create_snapshot(ec2_conn, galaxy_tools_vol.id, desc)
-            print "--------------------------"
-            print "New snapshot ID: %s" % snap_id
-            print "--------------------------"
-            answer = confirm("Would you like to update the file 'snaps.yaml' in '%s' bucket on S3 to include reference to the new snapshot ID: '%s'" % (DEFAULT_BUCKET_NAME, snap_id))
-            if answer:
-                _update_snaps_latest_file('galaxyTools', snap_id, galaxy_tools_vol.size, commit_num='Galaxy at commit %s' % commit_num)
-            
-            answer = confirm("Would you like to make the newly created snapshot '%s' public (you should if snaps.yaml in the previous question was updated)?" % snap_id)
-            if answer:
-                ec2_conn.modify_snapshot_attribute(snap_id, attribute='createVolumePermission', operation='add', groups=['all'])
-            
-            answer = confirm("Would you like to attach the *old* volume '%s' (but with updated Galaxy) used to make the new snapshot back to instance '%s' and mount it?" % (galaxy_tools_vol.id, instance_id))
-            if answer:
-                _attach(ec2_conn, instance_id, galaxy_tools_vol.id, device_id)
-                sudo("mount %s %s" % (device_id, os.path.split(GALAXY_HOME)[0]))
-                _start_galaxy()
-            elif confirm("Would you like to delete the *old* volume '%s' then?" % galaxy_tools_vol.id):
-                _delete_volume(ec2_conn, galaxy_tools_vol.id)
-            if not answer: # Old volume was not re-attached, maybe crete a new one 
-                if confirm("Would you like to create a new volume from the *new* snapshot '%s', attach it to the instance '%s' and mount it?" % (snap_id, instance_id)):
-                    try:
-                        new_vol = ec2_conn.create_volume(galaxy_tools_vol.size, galaxy_tools_vol.zone, snapshot=snap_id)
-                        print "Created new volume of size '%s' from snapshot '%s' with ID '%s'" % (new_vol.size, snap_id, new_vol.id)
-                        _attach(ec2_conn, instance_id, new_vol.id, device_id)
-                        sudo("mount %s %s" % (device_id, os.path.split(GALAXY_HOME)[0]))
-                        _start_galaxy()
-                    except EC2ResponseError, e:
-                        print "Error creating volume: %s" % e
-            print "----- Done updating Galaxy code -----"
-        else:
-            print "ERROR: Unable to 'discover' Galaxy volume id; volume not snapshoted"
-    time_end = dt.datetime.utcnow()
-    print "Duration of Galaxy source update: %s" % str(time_end-time_start)
-
-def snapshot_volume():
+def make_snapshot(galaxy=None):
     """ Create a snapshot of an existing volume that is currently attached to an
-    instance, taking care of the unmounting and detaching. The script will prompt 
-    for the file system path to be snapshoted.
+    instance, taking care of the unmounting and detaching. If you specify the
+    optional argument (:galaxy), the script will pull the latest Galaxy code 
+    from bitbucket and perform an update before snapshotting. Else, the script 
+    will prompt for the file system path to be snapshoted.
+    
     In order for this to work, an instance on EC2 needs to be running with a 
-    volume that wants to be snapshoted attached. The script will unmount the 
-    volume, create a snaphost and offer to reattach and mount the volume or 
-    create a new one from the freshly created snapshot.
-    MAKE SURE there are no running processes using the volume and that no one is
-    logged into the instance and sitting in the given directory.
+    volume that wants to be snapshoted attached and mounted. The script will 
+    unmount the volume, create a snaphost and offer to reattach and mount the 
+    volume or create a new one from the freshly created snapshot.
+    
+    Except for potentially Galaxy, MAKE SURE there are no running processes 
+    using the volume and that no one is logged into the instance and sitting 
+    in the given directory.
     """
     time_start = dt.datetime.utcnow()
     print "Start time: %s" % time_start
-    if boto:
-        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
-        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
-        ec2_conn = _get_ec2_conn(instance_region)
-        instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
+    # Check if we're creating a snapshot where Galaxy is installed & running
+    if galaxy=='galaxy':
+        galaxy=True
+        fs_path = os.path.split(GALAXY_HOME)[0]
+    else:
+        galaxy=False
         # Ask the user what is the path of the volume that should be snapshoted
         fs_path = raw_input("What is the path for the file system to be snapshoted? ")
-        vol_list = ec2_conn.get_all_volumes()
-        # Detect the volume ID of EBS volume where Galaxy provided in fs_path:
-        # - find out what device is fs_path mounted to
-        # - then search for given volume    
-        device_id = sudo("df | grep '%s' | awk '{print $1}'" % fs_path)
-        # print "Detected '%s' as being mounted from device '%s'" % (fs_path, device_id)
-        fs_vol = None
-        for vol in vol_list:
-            if vol.attach_data.instance_id==instance_id and vol.attach_data.status=='attached' and vol.attach_data.device == device_id:
-                fs_vol = vol
-        if fs_vol:
-            print "Detected that '%s' is mounted from device '%s' and attached as volume '%s'" % (fs_path, device_id, fs_vol.id)
-            sudo("umount %s" % fs_path)
-            _detach(ec2_conn, instance_id, fs_vol.id)
+    if galaxy:
+        commit_num = _update_galaxy()
+        _clean_galaxy_dir()
+    
+    instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
+    availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
+    instance_region = availability_zone[:-1] # Truncate zone letter to get region name
+    # Find the device where the file system is mounted to
+    device_id = sudo("df | grep '%s' | awk '{print $1}'" % fs_path)
+    # Find the EBS volume where the file system resides
+    ec2_conn = _get_ec2_conn(instance_region)
+    vol_list = ec2_conn.get_all_volumes()
+    fs_vol = None
+    for vol in vol_list:
+        if vol.attach_data.instance_id==instance_id and vol.attach_data.status=='attached' and vol.attach_data.device == device_id:
+            fs_vol = vol
+    if fs_vol:
+        print "Detected that '%s' is mounted from device '%s' and attached as volume '%s'" % (fs_path, device_id, fs_vol.id)
+        sudo("umount %s" % fs_path)
+        _detach(ec2_conn, instance_id, fs_vol.id)
+        if galaxy:
+            desc = "Galaxy (at commit %s) and tools" % commit_num
+        else:
             desc = raw_input("Provide a short snapshot description: ")
-            snap_id = _create_snapshot(ec2_conn, fs_vol.id, desc)
-            print "--------------------------"
-            print "New snapshot ID: %s" % snap_id
-            print "--------------------------"
-            answer = confirm("Would you like to attach the *old* volume '%s' used to make the new snapshot back to instance '%s' and mount it as '%s'?" % (fs_vol.id, instance_id, fs_path))
-            if answer:
-                _attach(ec2_conn, instance_id, fs_vol.id, device_id)
-                sudo("mount %s %s" % (device_id, fs_path))
-            elif confirm("Would you like to delete the *old* volume '%s' then?" % fs_vol.id):
-                _delete_volume(ec2_conn, fs_vol.id)
-            if not answer: # Old volume was not re-attached, maybe crete a new one 
-                if confirm("Would you like to create a new volume from the *new* snapshot '%s', attach it to the instance '%s' and mount it as '%s'?" % (snap_id, instance_id, fs_path)):
-                    try:
-                        new_vol = ec2_conn.create_volume(fs_vol.size, fs_vol.zone, snapshot=snap_id)
-                        print "Created new volume of size '%s' from snapshot '%s' with ID '%s'" % (new_vol.size, snap_id, new_vol.id)
-                        _attach(ec2_conn, instance_id, new_vol.id, device_id)
-                        sudo("mount %s %s" % (device_id, fs_path))
-                    except EC2ResponseError, e:
-                        print "Error creating volume: %s" % e
-            print "----- Done snapshoting volume for file system '%s' -----" % fs_path
+        snap_id = _create_snapshot(ec2_conn, fs_vol.id, desc)
+        print(green("--------------------------"))
+        print(green("New snapshot ID: %s" % snap_id))
+        print(green("--------------------------"))
+        if galaxy:
+            if confirm("Would you like to update the file 'snaps.yaml' in '%s' bucket on S3 to include reference to the new Galaxy snapshot ID: '%s'" % (DEFAULT_BUCKET_NAME, snap_id)):
+                _update_snaps_latest_file('galaxyTools', snap_id, fs_vol.size, commit_num='Galaxy at commit %s' % commit_num)
+        if confirm("Would you like to make the newly created snapshot '%s' public?" % snap_id):
+            ec2_conn.modify_snapshot_attribute(snap_id, attribute='createVolumePermission', operation='add', groups=['all'])
+        answer = confirm("Would you like to attach the *old* volume '%s' used to make the new snapshot back to instance '%s' and mount it as '%s'?" % (fs_vol.id, instance_id, fs_path))
+        if answer:
+            _attach(ec2_conn, instance_id, fs_vol.id, device_id)
+            sudo("mount %s %s" % (device_id, fs_path))
+            if galaxy:
+                _start_galaxy()
+        elif confirm("Would you like to delete the *old* volume '%s' then?" % fs_vol.id):
+            _delete_volume(ec2_conn, fs_vol.id)
+        if not answer: # Old volume was not re-attached, maybe crete a new one 
+            if confirm("Would you like to create a new volume from the *new* snapshot '%s', attach it to the instance '%s' and mount it as '%s'?" % (snap_id, instance_id, fs_path)):
+                try:
+                    new_vol = ec2_conn.create_volume(fs_vol.size, fs_vol.zone, snapshot=snap_id)
+                    print "Created new volume of size '%s' from snapshot '%s' with ID '%s'" % (new_vol.size, snap_id, new_vol.id)
+                    _attach(ec2_conn, instance_id, new_vol.id, device_id)
+                    sudo("mount %s %s" % (device_id, fs_path))
+                    if galaxy:
+                        _start_galaxy()
+                except EC2ResponseError, e:
+                    print(red("Error creating volume: %s" % e))
+        print(green("----- Done snapshoting volume '%s' for file system '%s' -----" % (fs_vol.id, fs_path)))
     else:
-        print "ERROR: cannot run this script without boto"
+        print(red("ERROR: cannot run this script without boto"))
     time_end = dt.datetime.utcnow()
-    print "Duration of snapshoting: %s" % str(time_end-time_start)
+    print "Duration of snapshoting: %s" % str(time_end-time_start)   
 
 ## ----- Helper methods -----
 def _update_galaxy():
