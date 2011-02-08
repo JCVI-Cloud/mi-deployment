@@ -374,13 +374,13 @@ def _install_nginx():
     url = os.path.join(REPO_ROOT_URL, nginx_conf_file)
     remote_conf_dir = os.path.join(install_dir, "conf")
     with cd(remote_conf_dir):
-        sudo("wget %s" % url)
+        sudo("wget --output-document=%s/%s %s" % (remote_conf_dir, nginx_conf_file, url))
     
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
     url = os.path.join(REPO_ROOT_URL, nginx_errdoc_file)
     remote_errdoc_dir = os.path.join(install_dir, "html")
     with cd(remote_errdoc_dir):
-        sudo("wget %s" % url)
+        sudo("wget --output-document=%s/%s %s" % (remote_errdoc_dir, nginx_errdoc_file, url))
         sudo('tar xvzf %s' % nginx_errdoc_file)
     print(green("----- nginx installed and configured -----"))
 
