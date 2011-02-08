@@ -25,7 +25,7 @@ from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings, hide, contains, append
 from fabric.colors import red, green
 
-AMI_DESCRIPTION = "Base Galaxy on Ubuntu 10.04" # Value used for AMI description field
+AMI_DESCRIPTION = "Base Galaxy CloudMan on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
@@ -282,6 +282,7 @@ def _required_packages():
                 'gfortran',
                 'python-rpy',
                 'openjdk-6-jdk',
+                'debconf-utils', # required to install proFTPd
                 'r-cran-qvalue', # required by Compute q-values
                 'r-bioc-hilbertvis', # required by HVIS
                 'tcl-dev', # required by various R modules
@@ -293,6 +294,8 @@ def _required_packages():
                 'xvfb' ] # required by R's pdf() output
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
+    # proFTPd package requires a bit of special handling because it requires user input
+    sudo('echo -e "proftpd-basic	shared/proftpd/inetd_or_standalone	select	standalone" | debconf-set-selections; apt-get -y --force-yes install proftpd')
 
 # == users
 
@@ -327,6 +330,7 @@ def _required_programs():
     # _install_postgresql()
     _configure_postgresql()
     _install_setuptools()
+    _install_samtools()
     _install_openmpi()
     _install_r_packages()
 
@@ -424,6 +428,28 @@ def _install_setuptools():
             run("wget %s" % url)
             sudo("sh %s" % os.path.split(url)[1].split('#')[0])
             print(green("----- setuptools installed -----"))
+
+def _install_samtools():
+    version = "0.1.7"
+    vext = "a"
+    mirror_info = "?use_mirror=cdnetworks-us-1"
+    url = "http://downloads.sourceforge.net/project/samtools/samtools/%s/" \
+            "samtools-%s%s.tar.bz2" % (version, version, vext)
+    install_dir = "/usr/bin"
+    install_cmd = sudo
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
+            run("tar -xjvpf %s" % (os.path.split(url)[-1]))
+            with cd("samtools-%s%s" % (version, vext)):
+                run("sed -i.bak -r -e 's/-lcurses/-lncurses/g' Makefile")
+                #sed("Makefile", "-lcurses", "-lncurses")
+                run("make")
+                for install in ["samtools", "misc/maq2sam-long"]:
+                    install_cmd("mv -f %s %s" % (install, install_dir))
+    print "----- SAMtools %s installed to %s -----" % (version, install_dir)
 
 def _install_openmpi():
     version = "1.4.2"
