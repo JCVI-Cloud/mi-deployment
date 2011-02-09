@@ -5,7 +5,7 @@ Fabric (http://docs.fabfile.org) is used to manage the automation of
 a remote server.
 
 Usage:
-    fab -f mi_fabfile.py -i full_path_to_private_key_file -H servername <configure_MI | rebundle>
+    fab -f mi_fabfile.py -i full_path_to_private_key_file -H servername <configure_MI[:rebundle] | rebundle>
 """
 import os, os.path, time, contextlib, tempfile
 import datetime as dt
@@ -225,7 +225,7 @@ def _make_tmp_dir():
 
 # -- Fabric instructions
 
-def configure_MI():
+def configure_MI(rebundle=False):
     """
     Configure the base Machine Image (MI) to be used with Galaxy Cloud:
     http://usegalaxy.org/cloud
@@ -241,8 +241,11 @@ def configure_MI():
     _configure_environment() 
     time_end = dt.datetime.utcnow()
     print "Duration of machine configuration: %s" % str(time_end-time_start)
-    answer = confirm("Would you like to bundle this instance into a new machine image?")
-    if answer:
+    if rebundle == 'rebundle':
+        rebundle = True
+    else:
+        rebundle = False
+    if rebundle or confirm("Would you like to bundle this instance into a new machine image?"):
         rebundle()
 
 # == system
