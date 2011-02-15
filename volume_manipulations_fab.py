@@ -318,11 +318,12 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
     Create a snapshot of the EBS volume with the provided volume_id. 
     Wait until the snapshot process is complete (note that this may take quite a while)
     """
-    print "Initiating snapshot of EBS volume '%s' in region '%s'" % (volume_id, ec2_conn.region.name)
+    s_time = dt.datetime.now()
+    print "Initiating snapshot of EBS volume '%s' in region '%s' (start time %s)" % (volume_id, ec2_conn.region.name, s_time)
     snapshot = ec2_conn.create_snapshot(volume_id, description=description)
     if snapshot: 
         while snapshot.status != 'completed':
-            print "Snapshot '%s' progress: '%s'; status: '%s'" % (snapshot.id, snapshot.progress, snapshot.status)
+            print "Snapshot '%s' progress: '%s'; status: '%s'; duration: %s" % (snapshot.id, snapshot.progress, snapshot.status, str(dt.datetime.now()-s_time))
             time.sleep(6)
             snapshot.update()
         print "Creation of snapshot for volume '%s' completed: '%s'" % (volume_id, snapshot)
