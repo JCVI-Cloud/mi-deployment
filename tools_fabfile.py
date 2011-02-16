@@ -897,6 +897,8 @@ def _install_mosaik():
             with cd("mosaik-aligner/src"):
                 run("make")
                 run("make utils")
+            with cd("mosaik-aligner"):
+                run("rm -rf data/ MosaikTools/ src/")
     sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
