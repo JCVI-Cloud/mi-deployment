@@ -323,7 +323,7 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
     snapshot = ec2_conn.create_snapshot(volume_id, description=description)
     if snapshot: 
         while snapshot.status != 'completed':
-            print "Snapshot '%s' progress: '%s'; status: '%s'; duration: %s" % (snapshot.id, snapshot.progress, snapshot.status, str(dt.datetime.now()-s_time))
+            print "Snapshot '%s' progress: '%s'; status: '%s'; duration: %s" % (snapshot.id, snapshot.progress, snapshot.status, str(dt.datetime.now()-s_time).split('.')[0])
             time.sleep(6)
             snapshot.update()
         print "Creation of snapshot for volume '%s' completed: '%s'" % (volume_id, snapshot)

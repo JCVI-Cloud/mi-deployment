@@ -187,6 +187,7 @@ def _install_tools():
     _install_fbat()
     _install_haploview()
     _install_eigenstrat()
+    _install_mosaik()
 
 def _install_R():
     version = "2.11.1"
@@ -880,6 +881,27 @@ def _install_eigenstrat():
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_mosaik():
+    version = "1.1.0021"
+    url = "http://code.google.com/p/mosaik-aligner/downloads/detail?name=Mosaik-%s-Linux-x64.tar.bz2" % version
+    pkg_name = 'mosaik'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s -O %s" % (url, os.path.split(url)[-1]))
+            run("tar -xjvpf %s" % (os.path.split(url)[-1]))
+            with cd("mosaik-aligner/src"):
+                run("make")
+                run("make utils")
+    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pk_name, version, install_dir)
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
