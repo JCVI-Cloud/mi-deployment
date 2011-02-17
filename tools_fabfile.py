@@ -883,8 +883,8 @@ def _install_eigenstrat():
     print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
 
 def _install_mosaik():
-    version = "1.1.0021"
-    url = "http://code.google.com/p/mosaik-aligner/downloads/detail?name=Mosaik-%s-Linux-x64.tar.bz2" % version
+    version = "1.1.0017"
+    url = "http://mosaik-aligner.googlecode.com/files/Mosaik-%s-Linux-x64.tar.bz2" % version
     pkg_name = 'mosaik'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     install_cmd = sudo if env.use_sudo else run
@@ -893,17 +893,19 @@ def _install_mosaik():
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s -O %s" % (url, os.path.split(url)[-1]))
-            run("tar -xjvpf %s" % (os.path.split(url)[-1]))
-            with cd("mosaik-aligner/src"):
-                run("make")
-                run("make utils")
-            with cd("mosaik-aligner"):
-                run("rm -rf data/ MosaikTools/ src/")
-    sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
-    sudo("chmod +x %s/env.sh" % install_dir)
+            install_cmd("tar -xjvpf %s -C %s" % (os.path.split(url)[-1], install_dir))
+    with cd(install_dir):
+        run("pwd")
+        with cd("mosaik-aligner"):
+            run("pwd")
+            install_cmd("rm -rf data/ MosaikTools/ src/")
+        install_cmd("mv mosaik-aligner/* .")
+        install_cmd("rm -rf mosaik-aligner")
+    install_cmd("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    install_cmd("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pk_name, version, install_dir)
+    install_cmd('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
