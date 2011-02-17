@@ -12,8 +12,11 @@ from __future__ import with_statement
 import os
 from contextlib import contextmanager, nested
 
-from fabric.api import *
-from fabric.contrib.files import *
+# from fabric.api import *
+# from fabric.contrib.files import *
+from fabric.api import sudo, run, env, cd
+from fabric.contrib.files import exists, settings, hide, append
+from fabric.colors import green
 
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
@@ -126,19 +129,19 @@ def _install_galaxy():
         with settings(warn_only=True):
             install_cmd("grep -q 'export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; if [ $? -eq 1 ]; then sed -i '2 a export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; fi")
             # Upload the custom cloud welcome screen files
-            if not exists("%s/static/images/cloud.gif" % galaxy_home):
-                sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (galaxy_home, CDN_ROOT_URL))
-            if not exists("%s/static/images/cloud_txt.png" % galaxy_home):
-                sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (galaxy_home, CDN_ROOT_URL))
-            sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (galaxy_home, CDN_ROOT_URL))
+            if not exists("%s/static/images/cloud.gif" % env.galaxy_home):
+                sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (env.galaxy_home, CDN_ROOT_URL))
+            if not exists("%s/static/images/cloud_txt.png" % env.galaxy_home):
+                sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (env.galaxy_home, CDN_ROOT_URL))
+            sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (env.galaxy_home, CDN_ROOT_URL))
         # set up the symlink for SAMTOOLS (remove this code once SAMTOOLS is converted to data tables)
-        if exists("%s/tool-data/sam_fa_indices.loc" % galaxy_home):
-            install_cmd("rm %s/tool-data/sam_fa_indices.loc" % galaxy_home)
+        if exists("%s/tool-data/sam_fa_indices.loc" % env.galaxy_home):
+            install_cmd("rm %s/tool-data/sam_fa_indices.loc" % env.galaxy_home)
         tmp_loc = False
         if not exists("/mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc"):
             install_cmd("touch /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
             tmp_loc = True
-        install_cmd("ln -s /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % galaxy_home)
+        install_cmd("ln -s /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % env.galaxy_home)
         if tmp_loc:
             install_cmd("rm /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
         # set up the special HYPHY link in tool-data/
@@ -188,6 +191,7 @@ def _install_tools():
     _install_haploview()
     _install_eigenstrat()
     _install_mosaik()
+    _install_freebayes()
 
 def _install_R():
     version = "2.11.1"
@@ -783,7 +787,7 @@ def _install_pass():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_lps_tool():
     version = '2010.09.30'
@@ -804,7 +808,7 @@ def _install_lps_tool():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_plink():
     version = '1.07'
@@ -895,9 +899,7 @@ def _install_mosaik():
             run("wget %s -O %s" % (url, os.path.split(url)[-1]))
             install_cmd("tar -xjvpf %s -C %s" % (os.path.split(url)[-1], install_dir))
     with cd(install_dir):
-        run("pwd")
         with cd("mosaik-aligner"):
-            run("pwd")
             install_cmd("rm -rf data/ MosaikTools/ src/")
         install_cmd("mv mosaik-aligner/* .")
         install_cmd("rm -rf mosaik-aligner")
@@ -906,6 +908,26 @@ def _install_mosaik():
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     install_cmd('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+
+def _install_freebayes():
+    version = "0.4.2"
+    url = "git://github.com/ekg/freebayes.git"
+    pkg_name = 'freebayes'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            install_cmd("git clone %s" % url)
+            with cd("freebayes"):
+                install_cmd("make")
+                install_cmd("mv bin/freebayes bin/bamleftalign bin/bamfiltertech %s" % install_dir)
+    install_cmd("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    install_cmd("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    install_cmd('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
