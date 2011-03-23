@@ -5,7 +5,7 @@ Fabric (http://docs.fabfile.org) is used to manage the automation of
 a remote server.
 
 Usage:
-    fab -f mi_fabfile.py -i full_path_to_private_key_file -H servername <configure_MI[:rebundle] | rebundle>
+    fab -f mi_fabfile.py -i full_path_to_private_key_file -H servername <configure_MI[:do_rebundle] | rebundle>
 """
 import os, os.path, time, contextlib, tempfile
 import datetime as dt
@@ -25,7 +25,7 @@ from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings, hide, contains, append
 from fabric.colors import red, green
 
-AMI_DESCRIPTION = "Base Galaxy CloudMan on Ubuntu 10.04" # Value used for AMI description field
+AMI_DESCRIPTION = "Galaxy CloudMan on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
@@ -225,7 +225,7 @@ def _make_tmp_dir():
 
 # -- Fabric instructions
 
-def configure_MI(rebundle=False):
+def configure_MI(do_rebundle=False):
     """
     Configure the base Machine Image (MI) to be used with Galaxy Cloud:
     http://usegalaxy.org/cloud
@@ -234,19 +234,21 @@ def configure_MI(rebundle=False):
     time_start = dt.datetime.utcnow()
     print "Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)
     _update_system()
-    _required_packages()
+    _required_packages() 
     _setup_users()
     _required_programs()
     _required_libraries()
     _configure_environment() 
     time_end = dt.datetime.utcnow()
     print "Duration of machine configuration: %s" % str(time_end-time_start)
-    if rebundle == 'rebundle':
-        rebundle = True
+    if do_rebundle == 'do_rebundle':
+        do_rebundle = True
+        reboot_if_needed = True
     else:
-        rebundle = False
-    if rebundle or confirm("Would you like to bundle this instance into a new machine image?"):
-        rebundle()
+        do_rebundle = False
+        reboot_if_needed = False
+    if do_rebundle or confirm("Would you like to bundle this instance into a new machine image?"):
+        rebundle(reboot_if_needed)
 
 # == system
 
@@ -285,7 +287,7 @@ def _required_packages():
                 'gfortran',
                 'python-rpy',
                 'openjdk-6-jdk',
-                'debconf-utils', # required to install proFTPd
+                'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
                 'r-cran-qvalue', # required by Compute q-values
                 'r-bioc-hilbertvis', # required by HVIS
                 'tcl-dev', # required by various R modules
@@ -297,21 +299,22 @@ def _required_packages():
                 'xvfb' ] # required by R's pdf() output
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
-    # proFTPd package requires a bit of special handling because it requires user input
-    sudo('echo -e "proftpd-basic	shared/proftpd/inetd_or_standalone	select	standalone" | debconf-set-selections; apt-get -y --force-yes install proftpd')
 
 # == users
 
 def _setup_users():
-    _add_user('galaxy')
+    _add_user('galaxy', '1001') # Must specify uid for 'galaxy' user because of the configuration for proFTPd
     _add_user('sgeadmin')
     _add_user('postgres')
 
-def _add_user(username):
+def _add_user(username, uid=None):
     """ Add user with username to the system """
     if not contains(username, '/etc/passwd'):
         print "User '%s' not found, adding it now" % username
-        sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" %s' % (username, username))
+        if uid:
+            sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" --uid %s --user-group %s' % (username, uid, username))
+        else:
+            sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" --user-group %s' % (username, username))
         print(green("Added user '%s'" % username))
 
 # == required programs
@@ -333,6 +336,7 @@ def _required_programs():
     # _install_postgresql()
     _configure_postgresql()
     _install_setuptools()
+    _install_proftpd()
     _install_samtools()
     _install_openmpi()
     _install_r_packages()
@@ -432,6 +436,37 @@ def _install_setuptools():
             sudo("sh %s" % os.path.split(url)[1].split('#')[0])
             print(green("----- setuptools installed -----"))
 
+def _install_proftpd():
+    version = "1.3.3d"
+    postgres_ver = "8.4"
+    url = "ftp://mirrors.ibiblio.org/proftpd/distrib/source/proftpd-%s.tar.gz" % version
+    install_dir = os.path.join(env.install_dir, 'proftpd')
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            with settings(hide('stdout')):
+                run("tar xvzf %s" % os.path.split(url)[1])
+            with cd("proftpd-%s" % version):
+                run("CFLAGS='-I/usr/include/postgresql' ./configure --prefix=%s --disable-auth-file --disable-ncurses --disable-ident --disable-shadow --enable-openssl --with-modules=mod_sql:mod_sql_postgres:mod_sql_passwd --with-libraries=/usr/lib/postgres/%s/lib" % (install_dir, postgres_ver))
+                sudo("make")
+                sudo("make install")
+                sudo("make clean")
+                # Get init.d startup script
+                initd_script = 'proftpd'
+                initd_url = os.path.join(REPO_ROOT_URL, 'conf_files', initd_script)
+                sudo("wget --output-document=%s %s" % (os.path.join('/etc/init.d', initd_script), initd_url))
+                sudo("chmod 755 %s" % os.path.join('/etc/init.d', initd_script))
+                # Get configuration files
+                proftpd_conf_file = 'proftpd.conf'
+                welcome_msg_file = 'welcome_msg.txt'
+                conf_url = os.path.join(REPO_ROOT_URL, 'conf_files', proftpd_conf_file)
+                welcome_url = os.path.join(REPO_ROOT_URL, 'conf_files', welcome_msg_file)
+                remote_conf_dir = os.path.join(install_dir, "etc")
+                sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, proftpd_conf_file), conf_url))
+                sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, welcome_msg_file), welcome_url))
+                sudo("cd %s; stow proftpd" % env.install_dir)
+                print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
+
 def _install_samtools():
     version = "0.1.7"
     vext = "a"
@@ -452,7 +487,7 @@ def _install_samtools():
                 run("make")
                 for install in ["samtools", "misc/maq2sam-long"]:
                     install_cmd("mv -f %s %s" % (install, install_dir))
-    print "----- SAMtools %s installed to %s -----" % (version, install_dir)
+                print "----- SAMtools %s installed to %s -----" % (version, install_dir)
 
 def _install_openmpi():
     version = "1.4.2"
@@ -469,7 +504,7 @@ def _install_openmpi():
                     sudo("make all install")
                     sudo("cd %s; stow openmpi" % env.install_dir)
                     # append("export PATH=%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
-                print(green("----- OpenMPI installed to %s -----" % install_dir))
+                print(green("----- OpenMPI %s installed to %s -----" % (version, install_dir)))
 
 def _install_r_packages():
     f = tempfile.NamedTemporaryFile()
@@ -513,8 +548,7 @@ def _configure_environment():
 
 def _configure_ec2_autorun():
     url = os.path.join(REPO_ROOT_URL, "ec2autorun.py")
-    with cd(env.install_dir):
-        sudo("wget %s" % url)
+    sudo("wget --output-document=%s/ec2autorun.py %s" % (env.install_dir, url))
     # Create upstart configuration file for boot-time script
     cloudman_boot_file = 'cloudman.conf'
     with open( cloudman_boot_file, 'w' ) as f:
@@ -610,7 +644,7 @@ def _configure_xvfb():
     print(green("----- configured xvfb -----"))
 
 # == Machine image rebundling code
-def rebundle():
+def rebundle(reboot_if_needed=False):
     """
     Rebundles the EC2 instance that is passed as the -H parameter
     This script handles all aspects of the rebundling process and is (almost) fully automated.
@@ -629,13 +663,13 @@ def rebundle():
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         instance_region = availability_zone[:-1] # Truncate zone letter to get region name
         ec2_conn = _get_ec2_conn(instance_region)
-        vol_size = 8 # This will be the size (in GB) of the root partition of the new image
+        vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         
         # Handle reboot if required
-        if _reboot(ec2_conn, instance_id):
+        if _reboot(ec2_conn, instance_id, reboot_if_needed):
             return False # Indicates that rebundling was not completed and should be restarted
         
         _clean() # Clean up the environment before rebundling
@@ -843,14 +877,15 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
     Create a snapshot of the EBS volume with the provided volume_id. 
     Wait until the snapshot process is complete (note that this may take quite a while)
     """
-    print "Initiating snapshot of EBS volume '%s' in region '%s'" % (volume_id, ec2_conn.region.name)
+    snap_start_time = dt.datetime.utcnow()
+    print "Initiating snapshot of EBS volume '%s' in region '%s' at '%s'" % (volume_id, ec2_conn.region.name, snap_start_time)
     snapshot = ec2_conn.create_snapshot(volume_id, description=description)
     if snapshot: 
         while snapshot.status != 'completed':
-            print "Snapshot '%s' progress: '%s'; status: '%s'" % (snapshot.id, snapshot.progress, snapshot.status)
-            time.sleep(6)
+            print "Snapshot '%s' progress: '%s'; status: '%s'; duration: %s" % (snapshot.id, snapshot.progress, snapshot.status, (dt.datetime.utcnow()-snap_start_time))
+            time.sleep(10)
             snapshot.update()
-        print(green("Creation of snapshot for volume '%s' completed: '%s'" % (volume_id, snapshot)))
+        print(green("Creation of snapshot for volume '%s' completed at '%s' (duration %s): '%s'" % (volume_id, dt.datetime.utcnow(), (dt.datetime.utcnow()-snap_start_time), snapshot)))
         return snapshot.id
     else:
         print(red("Could not create snapshot from volume with ID '%s'" % volume_id))

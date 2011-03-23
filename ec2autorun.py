@@ -21,7 +21,6 @@ logging.getLogger('boto').setLevel(logging.INFO) # Only log boto messages >=INFO
 USER_DATA_URL = 'http://169.254.169.254/latest/user-data'
 # USER_DATA_URL = 'http://userwww.service.emory.edu/~eafgan/content/userData.yaml.sample' # used for testing
 # USER_DATA_URL = 'http://userwww.service.emory.edu/~eafgan/content/url_ud.txt' # used for testing
-# USER_DATA_URL = 'http://userwww.service.emory.edu/~eafgan/content/original_ud.txt' # used for testing
 LOCAL_PATH = '/tmp/cm' # Local path destination used for storing/reading any files created by this script
 USER_DATA_FILE_NAME = 'userData.yaml' # Local file with user data formatted by this script
 USER_DATA_FILE = os.path.join(LOCAL_PATH, USER_DATA_FILE_NAME) 
@@ -215,9 +214,9 @@ def _get_boot_script(ud):
         log.debug("Could not get boot script '%s' from cluster bucket '%s'; retrieving public one from bucket url '%s'" % (ud['boot_script_name'], ud['bucket_cluster'], boot_script_url))
         got_boot_script = _get_file_from_url(boot_script_url)
     if got_boot_script:
-        log.debug("Got boot script '%s'" % os.path.join(LOCAL_PATH, DEFAULT_BOOT_SCRIPT_NAME))
-        # Save downloaded script to user's bucket for future invocations 
-        if ud.has_key('bucket_cluster'):
+        log.debug("Saved boot script to '%s'" % os.path.join(LOCAL_PATH, DEFAULT_BOOT_SCRIPT_NAME))
+        # Save downloaded boot script to user's bucket for future invocations 
+        if ud.has_key('bucket_cluster') and ud['bucket_cluster']:
             s3_conn = _get_s3_conn(ud['access_key'], ud['secret_key'])
             if _bucket_exists(s3_conn, ud['bucket_cluster']) and not _remote_file_exists(s3_conn, ud['bucket_cluster'], ud['boot_script_name']):
                 _save_file_to_bucket(s3_conn, ud['bucket_cluster'], ud['boot_script_name'], DEFAULT_BOOT_SCRIPT_NAME)        
@@ -279,58 +278,6 @@ def _handle_url(url):
     _get_file_from_url(url)
     boot_script_name = os.path.split(url)[1]
     _run_boot_script(boot_script_name)
-
-def _handle_original_format(ud):
-    """ The 'original' GC user data format:
-    <Cluster name>|<AWS_ACCESS_KEY>|<AWS_SECRET_KEY>|<Desired Galaxy Cloud Console password>
-    """
-    log.info("Handling user data in the 'original' GC format")
-    try:
-        # Create and format userData file
-        ud_list = ud.split('|')
-        cluster_name = ud_list[0]
-        access_key = ud_list[1]
-        secret_key = ud_list[2]
-        console_pwd = ud_list[3]
-        bucket_name = _get_bucket_name(cluster_name, access_key)
-            
-        # with open(USER_DATA_FILE, 'w') as ud_file:
-        #     ud_file.write('CLUSTER_NAME=%s\n' % cluster_name)
-        #     ud_file.write('AWS_ACCESS_KEY=%s\n' % access_key)
-        #     ud_file.write('AWS_PRIVATE_KEY=%s\n' % secret_key)
-        #     ud_file.write('PASSWORD=%s\n' % console_pwd)
-        #     if len(ud_list)>4:
-        #      ud_file.write('ROLE=%s\n' % ud_list[4])
-        #      ud_file.write('MASTER_IP=%s\n' % ud_list[5])
-        #     else:
-        #      ud_file.write('ROLE=master\n')
-        #     ud_file.write('BUCKET_NAME=%s\n' % bucket_name)
-        #     ud_file.write('CM_HOME=%s\n' % CLOUDMAN_HOME) # Used as download/install dir for CloudMan program
-    
-        # Create a YAML file from user data 
-        with open(USER_DATA_FILE, 'w') as ud_file:
-            ud_formatted = {'access_key': access_key,
-                            'boot_script_name': DEFAULT_BOOT_SCRIPT_NAME,
-                            'boot_script_path': LOCAL_PATH,
-                            'bucket_default': DEFAULT_BUCKET_NAME,
-                            'bucket_cluster': bucket_name,
-                            'cloudman_home': CLOUDMAN_HOME,
-                            'cluster_name': cluster_name,
-                            'password': console_pwd,
-                            'secret_key': secret_key}
-            if len(ud_list)>4:
-                ud_formatted['role'] = ud_list[4]
-                ud_formatted['master_ip'] = ud_list[5]
-            else:
-                ud_formatted['role'] = 'master'
-            yaml.dump(ud_formatted, ud_file, default_flow_style=False)
-    except Exception, e:
-        log.debug("Error with received user data '%s': %s" % (ud, e))
-        ud_formatted = _create_basic_user_data_file() # This file is expected by CloudMan
-    
-    # Get & run boot script
-    if _get_boot_script(ud_formatted):
-        _run_boot_script(DEFAULT_BOOT_SCRIPT_NAME)
 
 def _handle_yaml(user_data):
     """ Process user data in YAML format"""
@@ -400,8 +347,6 @@ def _parse_user_data(ud):
         _handle_empty()
     elif _isurl(ud):
         _handle_url(ud)
-    elif ud.find('\n')==-1: # 'original' GC user data format - for backward compatibility; assume yaml format user data will be on more than one line
-        _handle_original_format(ud)
     else: # default to yaml
         _handle_yaml(ud)
 

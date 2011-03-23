@@ -1,0 +1,15 @@
+Galaxy CLoud FTP
+
+This FTP server allows users to upload large data to this Galaxy cloud instance.
+
+Your login uses the same credentials as your Galaxy login - email address and
+password.
+
+Once files are successfully uploaded, the list of files available for importing
+in to a history will be displayed in the regular Upload tool.  For assistance,
+please contact:
+
+  galaxy-bugs@bx.psu.edu
+
+Files uploaded via FTP and not imported to a history within three days will be
+deleted.
