@@ -23,7 +23,7 @@ except:
 from fabric.api import sudo, run, env, cd, put, local
 from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings, hide, contains, append
-from fabric.colors import red, green
+from fabric.colors import red, green, yellow
 
 AMI_DESCRIPTION = "Galaxy CloudMan on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
@@ -256,7 +256,7 @@ def _update_system():
     """Runs standard system update"""
     _setup_sources()
     sudo('apt-get -y update')
-    run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y') # Ensure a completely noninteractive upgrade
+    run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y --force-yes') # Ensure a completely noninteractive upgrade
     sudo('apt-get -y dist-upgrade')
 
 def _setup_sources():
@@ -309,13 +309,13 @@ def _setup_users():
 
 def _add_user(username, uid=None):
     """ Add user with username to the system """
-    if not contains(username, '/etc/passwd'):
-        print "User '%s' not found, adding it now" % username
+    if not contains("%s:" % username, '/etc/passwd'):
+        print(yellow("System user '%s' not found; adding it now." % username))
         if uid:
             sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" --uid %s --user-group %s' % (username, uid, username))
         else:
             sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" --user-group %s' % (username, username))
-        print(green("Added user '%s'" % username))
+        print(green("Added system user '%s'" % username))
 
 # == required programs
 
@@ -468,7 +468,7 @@ def _install_proftpd():
                 print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
 
 def _install_samtools():
-    version = "0.1.7"
+    version = "0.1.12"
     vext = "a"
     mirror_info = "?use_mirror=cdnetworks-us-1"
     url = "http://downloads.sourceforge.net/project/samtools/samtools/%s/" \
@@ -515,6 +515,7 @@ def _install_r_packages():
         with cd(work_dir):
             sudo("R --vanilla --slave < install_packages.r")
     f.close()
+    print(green("----- R packages installed -----"))
 
 # == libraries
  
@@ -577,9 +578,13 @@ def _configure_sge():
         sudo("chown sgeadmin:sgeadmin %s" % sge_root)
 
 def _configure_galaxy_env():
-    # Edit the galaxy user .bash_profile in a somewhat roundabout way
-    append('export TEMP=/mnt/galaxyData/tmp', '/home/galaxy/.bash_profile', use_sudo=True)
-    sudo('chown galaxy:galaxy /home/galaxy/.bash_profile')
+    # Edit the galaxy user .bash_profile & .bashrc
+    if exists('/home/galaxy/.bash_profile'):
+        append('export TEMP=/mnt/galaxyData/tmp', '/home/galaxy/.bash_profile', use_sudo=True)
+        sudo('chown galaxy:galaxy /home/galaxy/.bash_profile')
+    if exists('/home/galaxy/.bashrc'):
+        append('export TEMP=/mnt/galaxyData/tmp', '/home/galaxy/.bashrc', use_sudo=True)
+        sudo('chown galaxy:galaxy /home/galaxy/.bashrc')
     # Create .sge_request file in galaxy home. This will be needed for proper execution of SGE jobs
     SGE_request_file = 'sge_request'
     f = open( SGE_request_file, 'w' )
