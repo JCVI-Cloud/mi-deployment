@@ -535,7 +535,8 @@ def _install_boto():
         sudo("git clone http://github.com/boto/boto.git")
         with cd(install_dir):
             sudo("python setup.py install")
-            print(green("----- boto installed -----"))
+            version = run('python -c"import boto; print boto.__version__"')
+            print(green("----- boto %s installed -----" % version))
 
 # == environment
 

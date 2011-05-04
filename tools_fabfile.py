@@ -10,13 +10,14 @@ Usage:
 from __future__ import with_statement
 
 import os
+import datetime as dt
 from contextlib import contextmanager, nested
 
 # from fabric.api import *
 # from fabric.contrib.files import *
 from fabric.api import sudo, run, env, cd
 from fabric.contrib.files import exists, settings, hide, append
-from fabric.colors import green
+from fabric.colors import green, yellow
 
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
@@ -44,18 +45,20 @@ def amazon_ec2():
 def install_tools():
     """Deploy a Galaxy server along with associated data files.
     """
+    time_start = dt.datetime.utcnow()
+    print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     amazon_ec2()
     if not exists(env.install_dir):
         sudo("mkdir -p %s" % env.install_dir)
     append("export PATH=PATH=%s/bin:$PATH" % env.install_dir, "/etc/bash.bashrc", use_sudo=True)
-    
-    # _required_packages()
-    # _required_libraries()
-    # _support_programs()
+    _required_packages()
+    # _required_libraries() # currently, nothing there
+    # _support_programs() # currently, nothing there
     _install_tools()
     _install_galaxy()
-    
     sudo("chown --recursive galaxy:galaxy %s" % os.path.split(env.install_dir)[0])
+    time_end = dt.datetime.utcnow()
+    print(yellow("Duration of tools installation: %s" % str(time_end-time_start)))
 
 # == Decorators and context managers
 
@@ -163,7 +166,7 @@ def _install_tools():
     _install_bowtie()
     _install_bwa()
     _install_samtools()
-    _install_fastx_toolkit()
+    # _install_fastx_toolkit()
     _install_maq()
     _install_bfast()
     _install_abyss()
@@ -205,14 +208,14 @@ def _install_R():
             with cd("R-%s" % version):
                 run("./configure --prefix=%s --enable-R-shlib --with-x=no --with-readline=no" % install_dir)
                 with settings(hide('stdout')):
-                    print "Making R..."
+                    print(yellow("Making R..."))
                     sudo("make")
                     sudo("make install")
     sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- R %s installed to %s -----" % (version, install_dir)
+    print(green("----- R %s installed to %s -----" % (version, install_dir)))
 
 def _install_rpy():
     # *Does not work in reality*
@@ -230,7 +233,7 @@ def _install_rpy():
                 install_cmd("python setup.py install --prefix %s" % install_dir)
                 # TODO: include prefix location into PYTHONPATH as part of env.sh:
                 # (e.g., "%s/lib/python2.6/site-packages/rpy-1.0.3-py2.6.egg-info" % install_dir)
-            print "----- RPy %s installed to %s -----" % (version, install_dir)
+            print(green("----- RPy %s installed to %s -----" % (version, install_dir)))
 
 def _install_ucsc_tools():
     """Install useful executables from UCSC.
@@ -254,7 +257,7 @@ def _install_ucsc_tools():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- UCSC Tools installed to %s -----" % install_dir
+    print(green("----- UCSC Tools installed to %s -----" % install_dir))
 
 def _install_ucsc_tools_src():
     """Install Jim Kent's executables from source.
@@ -287,7 +290,7 @@ def _install_bowtie():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- bowtie %s installed to %s -----" % (version, install_dir)
+    print(green("----- bowtie %s installed to %s -----" % (version, install_dir)))
 
 # @_if_not_installed("bwa")
 def _install_bwa():
@@ -313,11 +316,11 @@ def _install_bwa():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- BWA %s installed to %s -----" % (version, install_dir)
+    print(green("----- BWA %s installed to %s -----" % (version, install_dir)))
 
 # @_if_not_installed("samtools")
 def _install_samtools():
-    version = "0.1.7"
+    version = "0.1.12"
     vext = "a"
     mirror_info = "?use_mirror=cdnetworks-us-1"
     url = "http://downloads.sourceforge.net/project/samtools/samtools/%s/" \
@@ -341,7 +344,7 @@ def _install_samtools():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- SAMtools %s installed to %s -----" % (version, install_dir)
+    print(green("----- SAMtools %s installed to %s -----" % (version, install_dir)))
 
 # @_if_not_installed("fastq_quality_boxplot_graph.sh")
 def _install_fastx_toolkit():
@@ -371,7 +374,7 @@ def _install_fastx_toolkit():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- FASTX Toolkit %s installed to %s -----" % (version, install_dir)
+    print(green("----- FASTX Toolkit %s installed to %s -----" % (version, install_dir)))
 
 # @_if_not_installed("maq")
 def _install_maq():
@@ -394,7 +397,7 @@ def _install_maq():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- MAQ %s installed to %s -----" % (version, install_dir)
+    print(green("----- MAQ %s installed to %s -----" % (version, install_dir)))
 
 # @_if_not_installed("bfast")
 def _install_bfast():
@@ -417,7 +420,7 @@ def _install_bfast():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- BFAST %s installed to %s -----" % (version, install_dir)
+    print(green("----- BFAST %s installed to %s -----" % (version, install_dir)))
 
 # @_if_not_installed("ABYSS")
 def _install_abyss():
@@ -438,7 +441,7 @@ def _install_abyss():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- ABySS %s installed to %s -----" % (version, install_dir)
+    print(green("----- ABySS %s installed to %s -----" % (version, install_dir)))
 
 def _install_velvet():
     version = "1.0.13"
@@ -460,7 +463,7 @@ def _install_velvet():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- Velvet %s installed to %s -----" % (version, install_dir)
+    print(green("----- Velvet %s installed to %s -----" % (version, install_dir)))
 
 def _install_macs():
     version = "1.3.7.1"
@@ -481,10 +484,10 @@ def _install_macs():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- MACS %s installed to %s -----" % (version, install_dir)
+    print(green("----- MACS %s installed to %s -----" % (version, install_dir)))
 
 def _install_tophat():
-    version = '1.1.0'
+    version = '1.2.0'
     url = 'http://tophat.cbcb.umd.edu/downloads/tophat-%s.Linux_x86_64.tar.gz' % version
     pkg_name = "tophat"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -501,10 +504,10 @@ def _install_tophat():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- TopHat %s installed to %s -----" % (version, install_dir)
+    print(green("----- TopHat %s installed to %s -----" % (version, install_dir)))
 
 def _install_cufflinks():
-    version = '0.9.1'
+    version = '0.9.3'
     url = 'http://cufflinks.cbcb.umd.edu/downloads/cufflinks-%s.Linux_x86_64.tar.gz' % version
     pkg_name = "cufflinks"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -521,11 +524,11 @@ def _install_cufflinks():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- Cufflinks %s installed to %s -----" % (version, install_dir)
+    print(green("----- Cufflinks %s installed to %s -----" % (version, install_dir)))
 
 def _install_blast():
-    version = '2.2.24+'
-    url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-%s-x64-linux.tar.gz' % version
+    version = '2.2.25'
+    url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/%s/ncbi-blast-%s+-x64-linux.tar.gz' % (version, version)
     pkg_name = 'blast'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     install_cmd = sudo if env.use_sudo else run
@@ -535,13 +538,13 @@ def _install_blast():
         with cd(work_dir):
             run("wget %s" % url)
             run("tar -xvzf %s" % os.path.split(url)[-1])
-            with cd('ncbi-blast-%s/bin' % version):
+            with cd('ncbi-blast-%s+/bin' % version):
                     install_cmd("mv * %s" % install_dir)
     sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- BLAST %s installed to %s -----" % (version, install_dir)
+    print(green("----- BLAST %s+ installed to %s -----" % (version, install_dir)))
 
 def _install_sputnik():
     version = 'r1'
@@ -559,7 +562,7 @@ def _install_sputnik():
     sudo("chmod +x %s/env.sh %s/sputnik" % (install_dir, install_dir))
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_taxonomy():
     version = 'r2'
@@ -579,7 +582,7 @@ def _install_taxonomy():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_add_scores():
     version = 'r1'
@@ -597,7 +600,7 @@ def _install_add_scores():
     sudo("chmod +x %s/env.sh %s/add_scores" % (install_dir, install_dir))
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_emboss_phylip():
     version = '5.0.0'
@@ -629,7 +632,7 @@ def _install_emboss_phylip():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- EMBOSS+PHYLIP %s/%s installed to %s -----" % (version, phylip_version, install_dir)
+    print(green("----- EMBOSS+PHYLIP %s/%s installed to %s -----" % (version, phylip_version, install_dir)))
 
 def _install_hyphy():
     revision = '418'
@@ -661,7 +664,7 @@ def _install_hyphy():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- HYPHY %s installed to %s -----" % (version, install_dir)
+    print(green("----- HYPHY %s installed to %s -----" % (version, install_dir)))
 
 def _install_lastz():
     version = '1.01.88'
@@ -683,7 +686,7 @@ def _install_lastz():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- LASTZ %s installed to %s -----" % (version, install_dir)
+    print(green("----- LASTZ %s installed to %s -----" % (version, install_dir)))
 
 def _install_perm():
     version = '3.0'
@@ -702,7 +705,7 @@ def _install_perm():
     sudo("chmod +x %s/env.sh %s/PerM" % (install_dir, install_dir))
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- PerM %s installed to %s -----" % (version, install_dir)
+    print(green("----- PerM %s installed to %s -----" % (version, install_dir)))
 
 def install_gatk():
     version = '1.0.4418'
@@ -749,7 +752,7 @@ def _install_srma():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- SRMA %s installed to %s -----" % (version, install_dir)
+    print(green("----- SRMA %s installed to %s -----" % (version, install_dir)))
 
 def _install_beam():
     version = '2.0'
@@ -768,7 +771,7 @@ def _install_beam():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_pass():
     version = '2.0'
@@ -827,7 +830,7 @@ def _install_plink():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_fbat():
     version = '2.0.3'
@@ -846,7 +849,7 @@ def _install_fbat():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_haploview():
     version = '4.2b'
@@ -865,7 +868,7 @@ def _install_haploview():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_eigenstrat():
     version = '3.0'
@@ -884,7 +887,7 @@ def _install_eigenstrat():
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_mosaik():
     version = "1.1.0017"
@@ -907,10 +910,10 @@ def _install_mosaik():
     install_cmd("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     install_cmd('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print "----- %s %s installed to %s -----" % (pkg_name, version, install_dir)
+    print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_freebayes():
-    version = "0.4.2"
+    version = "0.6.5"
     url = "git://github.com/ekg/freebayes.git"
     pkg_name = 'freebayes'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -922,7 +925,7 @@ def _install_freebayes():
             install_cmd("git clone %s" % url)
             with cd("freebayes"):
                 install_cmd("make")
-                install_cmd("mv bin/freebayes bin/bamleftalign bin/bamfiltertech %s" % install_dir)
+                install_cmd("mv bin/* %s" % install_dir)
     install_cmd("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     install_cmd("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
