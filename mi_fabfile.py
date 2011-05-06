@@ -79,15 +79,13 @@ exec /usr/sbin/rabbitmq-multi start_all 1 > /var/log/rabbitmq/startup_log 2> /va
 # respawn
 """
 
-welcome_msg_template = """
-#!/bin/sh
+welcome_msg_template = """#!/bin/sh
 echo
 echo "Welcome to Galaxy CloudMan!"
 echo " * Documentation:  http://galaxyproject.org/cloud"
 """
 
-landscape_sysinfo_template = """
-#!/bin/sh
+landscape_sysinfo_template = """#!/bin/sh
 echo
 echo -n "  System information as of "
 /bin/date
