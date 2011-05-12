@@ -526,9 +526,9 @@ def _install_cufflinks():
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- Cufflinks %s installed to %s -----" % (version, install_dir)))
 
-def _install_blast():
-    version = '2.2.25'
-    url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/%s/ncbi-blast-%s+-x64-linux.tar.gz' % (version, version)
+def _install_megablast():
+    version = '2.2.22'
+    url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/release/%s/blast-%s-x64-linux.tar.gz' % (version, version)
     pkg_name = 'blast'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
     install_cmd = sudo if env.use_sudo else run
@@ -538,13 +538,33 @@ def _install_blast():
         with cd(work_dir):
             run("wget %s" % url)
             run("tar -xvzf %s" % os.path.split(url)[-1])
-            with cd('ncbi-blast-%s+/bin' % version):
+            with cd('blast-%s/bin' % version):
                     install_cmd("mv * %s" % install_dir)
     sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print(green("----- BLAST %s+ installed to %s -----" % (version, install_dir)))
+    print(green("----- MEGABLAST %s installed to %s -----" % (version, install_dir)))
+
+def _install_blast():
+    version = '2.2.25+'
+    url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/%s/ncbi-blast-%s-x64-linux.tar.gz' % (version[:-1], version)
+    pkg_name = 'blast'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s" % url)
+            run("tar -xvzf %s" % os.path.split(url)[-1])
+            with cd('ncbi-blast-%s/bin' % version):
+                    install_cmd("mv * %s" % install_dir)
+    sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print(green("----- BLAST %s installed to %s -----" % (version, install_dir)))
 
 def _install_sputnik():
     version = 'r1'
