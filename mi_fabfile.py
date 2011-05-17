@@ -285,6 +285,7 @@ def _required_packages():
                 'gfortran',
                 'python-rpy',
                 'openjdk-6-jdk',
+                'axel',
                 'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
                 'r-cran-qvalue', # required by Compute q-values
                 'r-bioc-hilbertvis', # required by HVIS

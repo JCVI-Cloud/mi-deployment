@@ -155,8 +155,10 @@ def _install_galaxy():
             install_cmd("mkdir -p tool-data/shared/jars")
         srma_dir = os.path.join(env.install_dir, 'srma', 'default')
         haploview_dir = os.path.join(env.install_dir, 'haploview', 'default')
+        picard_dir = os.path.join(env.install_dir, 'picard', 'default')
         install_cmd('ln -s %s/srma.jar tool-data/shared/jars/.' % srma_dir)
         install_cmd('ln -s %s/haploview.jar tool-data/shared/jars/.' % haploview_dir)
+        install_cmd('ln -s %s/*.jar tool-data/shared/jars/.' % picard_dir)
 
 # == NGS
 
@@ -190,11 +192,12 @@ def _install_tools():
     _install_pass()
     _install_lps_tool()
     _install_plink()
-    _install_fbat()
+    # _install_fbat() # Not available
     _install_haploview()
     _install_eigenstrat()
     _install_mosaik()
     _install_freebayes()
+    _install_picard()
 
 def _install_R():
     version = "2.11.1"
@@ -507,7 +510,7 @@ def _install_tophat():
     print(green("----- TopHat %s installed to %s -----" % (version, install_dir)))
 
 def _install_cufflinks():
-    version = '0.9.3'
+    version = '1.0.1'
     url = 'http://cufflinks.cbcb.umd.edu/downloads/cufflinks-%s.Linux_x86_64.tar.gz' % version
     pkg_name = "cufflinks"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -728,7 +731,7 @@ def _install_perm():
     print(green("----- PerM %s installed to %s -----" % (version, install_dir)))
 
 def install_gatk():
-    version = '1.0.4418'
+    version = '1.0.5777'
     url = 'ftp://ftp.broadinstitute.org/pub/gsa/GenomeAnalysisTK/GenomeAnalysisTK-%s.tar.bz2' % version
     pkg_name = 'gatk'
     install_dir_root = os.path.join(env.install_dir, pkg_name)
@@ -753,7 +756,7 @@ def install_gatk():
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
 
 def _install_srma():
-    version = '0.1.7'
+    version = '0.1.15'
     mirror_info = "?use_mirror=iweb"
     url = 'http://downloads.sourceforge.net/project/srma/srma/%s/srma-%s.zip' \
             % (version[:3], version)
@@ -951,6 +954,27 @@ def _install_freebayes():
     install_dir_root = os.path.join(env.install_dir, pkg_name)
     install_cmd('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
+
+def _install_picard():
+    version = '1.45'
+    mirror_info = "?use_mirror=voxel"
+    url = 'http://downloads.sourceforge.net/project/picard/picard-tools/%s/picard-tools-%s.zip' \
+            % (version, version)
+    pkg_name = 'picard'
+    install_dir = os.path.join(env.install_dir, pkg_name, version)
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with _make_tmp_dir() as work_dir:
+        with cd(work_dir):
+            run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
+            run("unzip %s" % (os.path.split(url)[-1]))
+            install_cmd("mv picard-tools-%s/*.jar %s" % (version, install_dir))
+    sudo("touch %s/env.sh" % install_dir)
+    sudo("chmod +x %s/env.sh" % install_dir)
+    install_dir_root = os.path.join(env.install_dir, pkg_name)
+    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    print(green("----- Picard %s installed to %s -----" % (version, install_dir)))
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
