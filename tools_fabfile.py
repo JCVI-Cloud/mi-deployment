@@ -179,6 +179,7 @@ def _install_tools():
     _install_macs()
     _install_tophat()
     _install_cufflinks()
+    _install_megablast()
     _install_blast()
     _install_sputnik()
     _install_taxonomy()
@@ -187,6 +188,7 @@ def _install_tools():
     _install_hyphy()
     _install_lastz()
     _install_perm()
+    _install_gatk()
     _install_srma()
     _install_beam()
     _install_pass()
@@ -730,7 +732,7 @@ def _install_perm():
     sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- PerM %s installed to %s -----" % (version, install_dir)))
 
-def install_gatk():
+def _install_gatk():
     version = '1.0.5777'
     url = 'ftp://ftp.broadinstitute.org/pub/gsa/GenomeAnalysisTK/GenomeAnalysisTK-%s.tar.bz2' % version
     pkg_name = 'gatk'
@@ -757,8 +759,8 @@ def install_gatk():
 
 def _install_srma():
     version = '0.1.15'
-    mirror_info = "?use_mirror=iweb"
-    url = 'http://downloads.sourceforge.net/project/srma/srma/%s/srma-%s.zip' \
+    mirror_info = "?use_mirror=voxel"
+    url = 'http://downloads.sourceforge.net/project/srma/srma/%s/srma-%s.jar' \
             % (version[:3], version)
     pkg_name = 'srma'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -768,8 +770,7 @@ def _install_srma():
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
-            run("unzip %s" % (os.path.split(url)[-1]))
-            install_cmd("mv srma-%s/srma-%s.jar %s" % (version, version, install_dir))
+            install_cmd("mv srma-%s.jar %s" % (version, install_dir))
             install_cmd("ln -s srma-%s.jar %s/srma.jar" % (version, install_dir))
     sudo("touch %s/env.sh" % install_dir)
     sudo("chmod +x %s/env.sh" % install_dir)
@@ -936,7 +937,7 @@ def _install_mosaik():
     print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_freebayes():
-    version = "0.6.5"
+    version = "0.6.6" # this seems to be bogus at this point considering it's repo
     url = "git://github.com/ekg/freebayes.git"
     pkg_name = 'freebayes'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
