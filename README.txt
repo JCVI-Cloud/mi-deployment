@@ -1,14 +1,15 @@
 mi-deployment project is a set of scripts that orchestrate and automate the 
 process of customizing a machine image (MI). Its primary applicability is for 
 the Galaxy CloudMan project (http://userwww.service.emory.edu/~eafgan/projects.html)
-where it sets up the necessary environment. The project is currently working 
-with the Amazon Elastic Compute Cloud (EC2); however, the provided set of scripts
-should be applicable in other environments, namely a local cloud deployment, a 
-single server setup, or for deploying other applications in a similar environment.
+where it sets up the necessary environment. The project is currently used to create
+Galaxy deployments on the Amazon Elastic Compute Cloud (EC2) as well as the Galaxy
+VM (http://usegalaxy.org/vm). The provided set of scripts should also be applicable 
+in other environments, namely a local cloud deployment, a single server setup, or
+for deploying other applications in a similar environment.
 
 ******************* Overview *******************
 NOTE: In order to use the scripts provided within the mi-deployment project, 
-Python Fabric (http://docs.fabfile.org/) and boto (http://github.com/boto/boto)
+Python Fabric v0.9* (http://docs.fabfile.org/) and boto (http://github.com/boto/boto)
 need to be available on the system from where mi-deployments scripts are run. 
 
 There are two basic scripts that can be run as part of mi-deployment (the rest of 
