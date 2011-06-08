@@ -9,7 +9,7 @@ for deploying other applications in a similar environment.
 
 ******************* Overview *******************
 NOTE: In order to use the scripts provided within the mi-deployment project, 
-Python Fabric v0.9* (http://docs.fabfile.org/) and boto (http://github.com/boto/boto)
+Python Fabric v1.0* (http://docs.fabfile.org/) and boto (http://github.com/boto/boto)
 need to be available on the system from where mi-deployments scripts are run. 
 
 There are two basic scripts that can be run as part of mi-deployment (the rest of 

@@ -45,12 +45,13 @@ def amazon_ec2():
 def install_tools():
     """Deploy a Galaxy server along with associated data files.
     """
+    _check_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     amazon_ec2()
     if not exists(env.install_dir):
         sudo("mkdir -p %s" % env.install_dir)
-    append("export PATH=PATH=%s/bin:$PATH" % env.install_dir, "/etc/bash.bashrc", use_sudo=True)
+    append("/etc/bash.bashrc", "export PATH=PATH=%s/bin:$PATH" % env.install_dir, use_sudo=True)
     _required_packages()
     # _required_libraries() # currently, nothing there
     # _support_programs() # currently, nothing there
@@ -341,7 +342,6 @@ def _install_samtools():
             run("tar -xjvpf %s" % (os.path.split(url)[-1]))
             with cd("samtools-%s%s" % (version, vext)):
                 run("sed -i.bak -r -e 's/-lcurses/-lncurses/g' Makefile")
-                #sed("Makefile", "-lcurses", "-lncurses")
                 run("make")
                 for install in ["samtools", "misc/maq2sam-long"]:
                     install_cmd("mv -f %s %s" % (install, install_dir))
@@ -1005,3 +1005,9 @@ def _support_programs():
     # easy_install gnuplot-py
     # emboss
 
+
+## =========== Helpers ==============
+def _check_version():
+    version = env.version
+    if int(version.split(".")[0]) < 1:
+        raise NotImplementedError("Please install Fabric version 1.0 or later.")

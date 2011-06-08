@@ -45,7 +45,6 @@ env.install_dir = '/opt/galaxy/pkg'
 env.tmp_dir = "/mnt"
 env.galaxy_files = '/mnt/galaxy'
 env.shell = "/bin/bash -l -c"
-env.use_sudo = True
 env.sources_file = "/etc/apt/sources.list"
 env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
 
@@ -229,6 +228,7 @@ def configure_MI(do_rebundle=False):
     http://usegalaxy.org/cloud
     http://userwww.service.emory.edu/~eafgan/projects.html
     """
+    _check_version()
     time_start = dt.datetime.utcnow()
     print "Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)
     _update_system()
@@ -260,8 +260,8 @@ def _update_system():
 def _setup_sources():
     """Add sources for retrieving library packages."""
     for source in env.std_sources:
-        if not contains(source, env.sources_file):
-            append(source, env.sources_file, use_sudo=True)
+        if not contains(env.sources_file, source):
+            append(env.sources_file, source, use_sudo=True)
 
 # == packages
 
@@ -308,7 +308,7 @@ def _setup_users():
 
 def _add_user(username, uid=None):
     """ Add user with username to the system """
-    if not contains("%s:" % username, '/etc/passwd'):
+    if not contains('/etc/passwd', "%s:" % username):
         print(yellow("System user '%s' not found; adding it now." % username))
         if uid:
             sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" --uid %s --user-group %s' % (username, uid, username))
@@ -326,9 +326,9 @@ def _required_programs():
     
     # Setup global environment for all users
     install_dir = os.path.split(env.install_dir)[0]
-    append("export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir), '/etc/bash.bashrc', use_sudo=True)
-    append("export LD_LIBRARY_PATH=%s/lib" % install_dir, '/etc/bash.bashrc', use_sudo=True)
-    append("export DISPLAY=:42", '/etc/bash.bashrc', use_sudo=True)
+    append('/etc/bash.bashrc', "export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir), use_sudo=True)
+    append('/etc/bash.bashrc', "export LD_LIBRARY_PATH=%s/lib" % install_dir, use_sudo=True)
+    append('/etc/bash.bashrc', "export DISPLAY=:42", use_sudo=True)
     # Install required programs
     _get_sge()
     _install_nginx()
@@ -420,8 +420,8 @@ def _configure_postgresql(delete_main_dbcluster=False):
     """
     pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d' ' | cut -f1 -d'-' | cut -f1-2 -d'.'")
     if delete_main_dbcluster:
-        sudo('su postgres -c"pg_dropcluster --stop %s main"' % pg_ver)
-    append("export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver, "/etc/bash.bashrc", use_sudo=True)
+        sudo('pg_dropcluster --stop %s main' % pg_ver, user='postgres')
+    append('/etc/bash.bashrc', "export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver, use_sudo=True)
     print(green("----- PostgreSQL configured -----"))
 
 @_if_not_installed("easy_install")
@@ -482,7 +482,6 @@ def _install_samtools():
             run("tar -xjvpf %s" % (os.path.split(url)[-1]))
             with cd("samtools-%s%s" % (version, vext)):
                 run("sed -i.bak -r -e 's/-lcurses/-lncurses/g' Makefile")
-                #sed("Makefile", "-lcurses", "-lncurses")
                 run("make")
                 for install in ["samtools", "misc/maq2sam-long"]:
                     install_cmd("mv -f %s %s" % (install, install_dir))
@@ -502,7 +501,7 @@ def _install_openmpi():
                     print "Making OpenMPI..."
                     sudo("make all install")
                     sudo("cd %s; stow openmpi" % env.install_dir)
-                    # append("export PATH=%s/bin:$PATH" % install_dir, "/etc/bash.bashrc", use_sudo=True)
+                    # append('/etc/bash.bashrc', "export PATH=%s/bin:$PATH" % install_dir, use_sudo=True)
                 print(green("----- OpenMPI %s installed to %s -----" % (version, install_dir)))
 
 def _install_r_packages():
@@ -554,8 +553,8 @@ def _configure_ec2_autorun():
     cloudman_boot_file = 'cloudman.conf'
     with open( cloudman_boot_file, 'w' ) as f:
         print >> f, cm_upstart % env.install_dir
-    put(cloudman_boot_file, '/tmp/%s' % cloudman_boot_file) # Because of permissions issue
-    sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (cloudman_boot_file, cloudman_boot_file, cloudman_boot_file))
+    remote_file = '/etc/init/%s' % cloudman_boot_file
+    _put_as_user(cloudman_boot_file, remote_file, user='root')
     os.remove(cloudman_boot_file)
     print(green("----- ec2_autorun added to upstart -----"))
     
@@ -563,8 +562,8 @@ def _configure_ec2_autorun():
     rabbitmq_server_conf = 'rabbitmq-server.conf'
     with open( rabbitmq_server_conf, 'w' ) as f:
         print >> f, rabitmq_upstart #% env.install_dir
-    put(rabbitmq_server_conf, '/tmp/%s' % rabbitmq_server_conf) # Because of permissions issue
-    sudo("mv /tmp/%s /etc/init/%s; chown root:root /etc/init/%s" % (rabbitmq_server_conf, rabbitmq_server_conf, rabbitmq_server_conf))
+    remote_file = '/etc/init/%s' % rabbitmq_server_conf
+    _put_as_user(rabbitmq_server_conf, remote_file, user='root')
     os.remove(rabbitmq_server_conf)
     # Stop the init.d script
     sudo('/usr/sbin/update-rc.d -f rabbitmq-server remove')
@@ -578,20 +577,12 @@ def _configure_sge():
         sudo("chown sgeadmin:sgeadmin %s" % sge_root)
 
 def _configure_galaxy_env():
-    # Edit the galaxy user .bash_profile & .bashrc
-    if exists('/home/galaxy/.bash_profile'):
-        append('export TEMP=/mnt/galaxyData/tmp', '/home/galaxy/.bash_profile', use_sudo=True)
-        sudo('chown galaxy:galaxy /home/galaxy/.bash_profile')
-    if exists('/home/galaxy/.bashrc'):
-        append('export TEMP=/mnt/galaxyData/tmp', '/home/galaxy/.bashrc', use_sudo=True)
-        sudo('chown galaxy:galaxy /home/galaxy/.bashrc')
     # Create .sge_request file in galaxy home. This will be needed for proper execution of SGE jobs
     SGE_request_file = 'sge_request'
-    f = open( SGE_request_file, 'w' )
-    print >> f, sge_request
-    f.close()
-    put(SGE_request_file, '/tmp/%s' % SGE_request_file) # Because of permissions issue
-    sudo("mv /tmp/%s /home/galaxy/.%s; chown galaxy:galaxy /home/galaxy/.%s" % (SGE_request_file, SGE_request_file, SGE_request_file))
+    with open( SGE_request_file, 'w' ) as f:
+        print >> f, sge_request
+    remote_file = '/home/galaxy/.%s' % SGE_request_file
+    _put_as_user(SGE_request_file, remote_file, user='galaxy')
     os.remove(SGE_request_file)
 
 def _configure_nfs():
@@ -600,7 +591,7 @@ def _configure_nfs():
                 '/mnt/galaxyIndices *(rw,sync,no_root_squash,no_subtree_check)',
                 '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)',
                 '%s/openmpi         *(rw,sync,no_root_squash,no_subtree_check)' % env.install_dir]
-    append(exports, '/etc/exports', use_sudo=True)
+    append('/etc/exports', exports, use_sudo=True)
 
 def _configure_bash():
     """Some convenience/preference settings"""
@@ -608,36 +599,34 @@ def _configure_bash():
     welcome_msg_template_file = '10-help-text'
     with open( welcome_msg_template_file, 'w' ) as f:
         print >> f, welcome_msg_template
-    put(welcome_msg_template_file, '/tmp/%s' % welcome_msg_template_file) # Because of permissions issue
-    sudo("mv /tmp/%s /etc/update-motd.d/%s; chown root:root /etc/update-motd.d/%s" % (welcome_msg_template_file, welcome_msg_template_file, welcome_msg_template_file))
-    sudo("chmod +x /etc/update-motd.d/%s" % welcome_msg_template_file)
+    remote_file = '/etc/update-motd.d/%s' % welcome_msg_template_file
+    _put_as_user(welcome_msg_template_file, remote_file, user='root', mode=755)
     os.remove(welcome_msg_template_file)
     
     landscape_sysinfo_template
     landscape_sysinfo_template_file = '50-landscape-sysinfo'
     with open( landscape_sysinfo_template_file, 'w' ) as f:
         print >> f, landscape_sysinfo_template
-    put(landscape_sysinfo_template_file, '/tmp/%s' % landscape_sysinfo_template_file) # Because of permissions issue
-    sudo("mv /tmp/%s /etc/update-motd.d/%s; chown root:root /etc/update-motd.d/%s" % (landscape_sysinfo_template_file, landscape_sysinfo_template_file, landscape_sysinfo_template_file))
-    sudo("chmod +x /etc/update-motd.d/%s" % landscape_sysinfo_template_file)
+    remote_file = '/etc/update-motd.d/%s' % landscape_sysinfo_template_file
+    _put_as_user(landscape_sysinfo_template_file, remote_file, user='root', mode=755)
     os.remove(landscape_sysinfo_template_file)
     
     sudo('if [ -f /etc/update-motd.d/51_update_motd ]; then rm -f /etc/update-motd.d/51_update_motd; fi')
     
-    append(['alias lt=\"ls -ltr\"', 'alias mroe=more'], '/etc/bash.bashrc', use_sudo=True)
+    append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
 
 def _configure_xvfb():
     """Configure the virtual X framebuffer which is necessary for a couple tools."""
     xvfb_init_file = 'xvfb_init'
     with open( xvfb_init_file, 'w' ) as f:
         print >> f, xvfb_init_template
-    put(xvfb_init_file, '/tmp/%s' % xvfb_init_file)
-    sudo("mv /tmp/%s /etc/init.d/xvfb; chown root:root /etc/init.d/xvfb; chmod 0755 /etc/init.d/xvfb" % xvfb_init_file)
+    remote_file = '/etc/init.d/xvfb'
+    _put_as_user(xvfb_init_file, remote_file, user='root', mode=755)
     xvfb_default_file = 'xvfb_default'
     with open( xvfb_default_file, 'w' ) as f:
         print >> f, xvfb_default_template
-    put(xvfb_default_file, '/tmp/%s' % xvfb_default_file)
-    sudo("mv /tmp/%s /etc/default/xvfb; chown root:root /etc/default/xvfb" % xvfb_default_file)
+    remote_file = '/etc/default/xvfb'
+    _put_as_user(xvfb_default_file, remote_file, user='root')
     sudo("ln -s /etc/init.d/xvfb /etc/rc0.d/K01xvfb")
     sudo("ln -s /etc/init.d/xvfb /etc/rc1.d/K01xvfb")
     sudo("ln -s /etc/init.d/xvfb /etc/rc2.d/S99xvfb")
@@ -938,3 +927,13 @@ def _get_ec2_conn(instance_region='us-east-1'):
     except EC2ResponseError, e:
         print(red("ERROR getting EC2 connections: %s" % e))
         return None
+
+## =========== Helpers ==============
+def _check_version():
+    version = env.version
+    if int(version.split(".")[0]) < 1:
+        raise NotImplementedError("Please install Fabric version 1.0 or later.")
+
+def _put_as_user(local_file, remote_file, user, mode=None):
+    put(local_file, remote_file, use_sudo=True, mode=mode)
+    sudo("chown %s:%s %s" % (user, user, remote_file))
