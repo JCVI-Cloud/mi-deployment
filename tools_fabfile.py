@@ -1,7 +1,4 @@
-"""Fabric deployment file to set up a range of NGS tools
-
-Fabric (http://docs.fabfile.org) is used to manage the automation of
-a remote server.
+"""Fabric (http://docs.fabfile.org) deployment file to set up a range of NGS tools
 
 Usage:
     fab -f tools_fabfile.py -i full_path_to_private_key_file -H <servername> install_tools
@@ -26,9 +23,12 @@ CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 env.user = 'ubuntu'
 env.use_sudo = False
 
-def amazon_ec2():
-    """Setup for a ubuntu 10.04 on EC2
-
+# -- Provide methods for easy switching between specific environment setups for 
+# different deployment scenarios (an environment must be loaded as the first line
+# in any invokable function)
+def _amazon_ec2_environment():
+    """Environment setup for Galaxy on Ubuntu 10.04 on EC2
+    
     NOTE: This script/environment assumes given environment directories are available.
     Typically, this would assume starting an EC2 instance, attaching an EBS
     volume to it, creating a file system on it, and mounting it at below paths.
@@ -45,10 +45,10 @@ def amazon_ec2():
 def install_tools():
     """Deploy a Galaxy server along with associated data files.
     """
-    _check_version()
+    _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-    amazon_ec2()
+    _amazon_ec2_environment()
     if not exists(env.install_dir):
         sudo("mkdir -p %s" % env.install_dir)
     append("/etc/bash.bashrc", "export PATH=PATH=%s/bin:$PATH" % env.install_dir, use_sudo=True)
@@ -1007,7 +1007,7 @@ def _support_programs():
 
 
 ## =========== Helpers ==============
-def _check_version():
+def _check_fabric_version():
     version = env.version
     if int(version.split(".")[0]) < 1:
         raise NotImplementedError("Please install Fabric version 1.0 or later.")

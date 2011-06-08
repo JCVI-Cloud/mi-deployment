@@ -1,8 +1,6 @@
-"""Fabric deployment file to set up a Galaxy CloudMan AMI. 
-Currently, targeted for Amazon's EC2 (http://aws.amazon.com/ec2/)
-
-Fabric (http://docs.fabfile.org) is used to manage the automation of
-a remote server.
+"""Fabric (http://docs.fabfile.org) deployment file to set up a machine ready to
+run Galaxy (http://galaxyproject.org). This is primarily used to by Cloudman 
+(http://usegalaxy.org/cloud) and Galaxy VM (http://usegalaxy.org/vm) projects.
 
 Usage:
     fab -f mi_fabfile.py -i full_path_to_private_key_file -H servername <configure_MI[:do_rebundle] | rebundle>
@@ -37,16 +35,21 @@ REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 # os.environ['AWS_SECRET_ACCESS_KEY'] = "your secret key"
 
 
-# -- Specific setup for the Galaxy Cloud AMI
-env.user = 'ubuntu'
-env.use_sudo = True
-env.path = '/mnt/galaxyTools/galaxy-central'
-env.install_dir = '/opt/galaxy/pkg'
-env.tmp_dir = "/mnt"
-env.galaxy_files = '/mnt/galaxy'
-env.shell = "/bin/bash -l -c"
-env.sources_file = "/etc/apt/sources.list"
-env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
+# -- Provide methods for easy switching between specific environment setups for 
+# different deployment scenarios (an environment must be loaded as the first line
+# in any invokable function)
+def _amazon_ec2_environment():
+    """ Environment setup for Galaxy on Ubuntu 10.04 on EC2 """
+    env.user = 'ubuntu'
+    env.use_sudo = True
+    env.path = '/mnt/galaxyTools/galaxy-central'
+    env.install_dir = '/opt/galaxy/pkg'
+    env.tmp_dir = "/mnt"
+    env.galaxy_files = '/mnt/galaxy'
+    env.shell = "/bin/bash -l -c"
+    env.sources_file = "/etc/apt/sources.list"
+    env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
+
 
 # == Templates
 sge_request = """
@@ -228,9 +231,10 @@ def configure_MI(do_rebundle=False):
     http://usegalaxy.org/cloud
     http://userwww.service.emory.edu/~eafgan/projects.html
     """
-    _check_version()
+    _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print "Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)
+    _amazon_ec2_environment()
     _update_system()
     _required_packages() 
     _setup_users()
@@ -650,8 +654,10 @@ def rebundle(reboot_if_needed=False):
              return True.
              False, otherwise.
     """
+    _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
+    _amazon_ec2_environment()
     if boto:
         # Select appropriate region:
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
@@ -929,7 +935,7 @@ def _get_ec2_conn(instance_region='us-east-1'):
         return None
 
 ## =========== Helpers ==============
-def _check_version():
+def _check_fabric_version():
     version = env.version
     if int(version.split(".")[0]) < 1:
         raise NotImplementedError("Please install Fabric version 1.0 or later.")
