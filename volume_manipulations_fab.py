@@ -4,7 +4,7 @@ automatically taking care of the system level operations.
 Fabric (http://docs.fabfile.org) is used to manage the automation of a remote server.
 
 Usage:
-    fab -f volume_manipulations_fab.py -i full_path_to_private_key_file -H servername make_snapshot[:galaxy]
+    fab -f volume_manipulations_fab.py -i key_file -H servername make_snapshot[:galaxy]
 """
 
 import os, os.path, time, urllib, yaml
@@ -18,7 +18,7 @@ from boto.exception import EC2ResponseError, S3ResponseError
 from fabric.api import sudo, run, env
 from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings
-from fabric.colors import red, green
+from fabric.colors import red, green, yellow
 
 GALAXY_HOME = "/mnt/galaxyTools/galaxy-central"
 DEFAULT_BUCKET_NAME = 'cloudman'
@@ -80,7 +80,7 @@ def make_snapshot(galaxy=None):
         if vol.attach_data.instance_id==instance_id and vol.attach_data.status=='attached' and vol.attach_data.device == device_id:
             fs_vol = vol
     if fs_vol:
-        print "Detected that '%s' is mounted from device '%s' and attached as volume '%s'" % (fs_path, device_id, fs_vol.id)
+        print(yellow("Detected that '%s' is mounted from device '%s' and attached as volume '%s'" % (fs_path, device_id, fs_vol.id)))
         sudo("umount %s" % fs_path)
         _detach(ec2_conn, instance_id, fs_vol.id)
         if galaxy:
@@ -101,44 +101,54 @@ def make_snapshot(galaxy=None):
             _attach(ec2_conn, instance_id, fs_vol.id, device_id)
             sudo("mount %s %s" % (device_id, fs_path))
             if galaxy:
-                _start_galaxy()
+                answer = confirm("Would you like to start Galaxy on instance?")
+                if answer:
+                    _start_galaxy()
         elif confirm("Would you like to delete the *old* volume '%s' then?" % fs_vol.id):
             _delete_volume(ec2_conn, fs_vol.id)
         if not answer: # Old volume was not re-attached, maybe crete a new one 
             if confirm("Would you like to create a new volume from the *new* snapshot '%s', attach it to the instance '%s' and mount it as '%s'?" % (snap_id, instance_id, fs_path)):
                 try:
                     new_vol = ec2_conn.create_volume(fs_vol.size, fs_vol.zone, snapshot=snap_id)
-                    print "Created new volume of size '%s' from snapshot '%s' with ID '%s'" % (new_vol.size, snap_id, new_vol.id)
+                    print(yellow("Created new volume of size '%s' from snapshot '%s' with ID '%s'" % (new_vol.size, snap_id, new_vol.id)))
                     _attach(ec2_conn, instance_id, new_vol.id, device_id)
                     sudo("mount %s %s" % (device_id, fs_path))
                     if galaxy:
-                        _start_galaxy()
+                        answer = confirm("Would you like to start Galaxy on instance?")
+                        if answer:
+                            _start_galaxy()
                 except EC2ResponseError, e:
                     print(red("Error creating volume: %s" % e))
         print(green("----- Done snapshoting volume '%s' for file system '%s' -----" % (fs_vol.id, fs_path)))
     else:
         print(red("ERROR: cannot run this script without boto"))
     time_end = dt.datetime.utcnow()
-    print "Duration of snapshoting: %s" % str(time_end-time_start)   
+    print(yellow("Duration of snapshoting: %s" % str(time_end-time_start)))
 
 ## ----- Helper methods -----
 def _update_galaxy():
-    if exists("%s/paster.pid" % GALAXY_HOME):
-        sudo('su galaxy -c "cd %s; sh run.sh --stop-daemon"' % GALAXY_HOME)
-    
+    _stop_galaxy()
     # Because of a conflict in static/welcome.html file on cloud Galaxy and the
     # main Galaxy repository, force local change to persist in case of a merge
+    print(yellow("Updating Galaxy source"))
     sudo('su galaxy -c "cd %s; hg --config ui.merge=internal:local pull --update"' % GALAXY_HOME)
     commit_num = sudo('su galaxy -c "cd %s; hg tip | grep changeset | cut -d: -f2 "' % GALAXY_HOME).strip()
     # A vanilla datatypes_conf is used so to make sure it's up to date delete it; it will be automatically recreated.
     if exists("%s/datatypes_conf.xml" % GALAXY_HOME):
         sudo('cd %s; rm datatypes_conf.xml' % GALAXY_HOME)
+    print(yellow("Upgrading Galaxy database"))
     sudo('su galaxy -c "cd %s; sh manage_db.sh upgrade"' % GALAXY_HOME)
+    # Start & stop Galaxy now to ensure all of the recent eggs get downloaded
+    # before a snapshot is created
+    print(yellow("Testing Galaxy via full start-stop"))
+    _start_galaxy()
+    _stop_galaxy()
     return commit_num
 
 def _clean_galaxy_dir():
     # Clean up galaxy directory before snapshoting
     with settings(warn_only=True):
+        print(yellow("Cleaning Galaxy's directory"))
         if exists("%s/paster.log" % GALAXY_HOME):
             sudo("rm %s/paster.log" % GALAXY_HOME)
         sudo("rm %s/database/pbs/*" % GALAXY_HOME)
@@ -167,12 +177,31 @@ def _clean_galaxy_dir():
         sudo("rm %s/tool_conf.xml.cloud" % GALAXY_HOME)
     if exists("%s/tool_data_table_conf.xml.cloud" % GALAXY_HOME):
         sudo("rm %s/tool_data_table_conf.xml.cloud" % GALAXY_HOME)
-    
+
+def _stop_galaxy():
+    if exists(os.path.join(GALAXY_HOME, "paster.pid")):
+        print(yellow("Stopping Galaxy"))
+        sudo('su galaxy -c "cd %s; sh run.sh --stop-daemon"' % GALAXY_HOME)
+    else:
+        print(yellow("Wanted to stop Galaxy but it does not seem to be running?"))
 
 def _start_galaxy():
-    answer = confirm("Would you like to start Galaxy on instance?")
-    if answer:
-        sudo('su galaxy -c "source /etc/bash.bashrc; source /home/galaxy/.bash_profile; export SGE_ROOT=/opt/sge; cd /mnt/galaxyTools/galaxy-central; sh run.sh --daemon"')
+    print(yellow("Starting Galaxy"))
+    sudo('su galaxy -c "source /etc/bash.bashrc; source /home/galaxy/.bash_profile; export SGE_ROOT=/opt/sge; cd /mnt/galaxyTools/galaxy-central; sh run.sh --daemon"')
+    # Wait for Galaxy to start - obviously this may result in an infinite
+    # loop so watch it...
+    # Also, this assumes Galaxy runs on 127.0.0.1:8080
+    counter = 0
+    while True:
+        galaxy_accessible = run('curl --silent 127.0.0.1:8080 > /dev/null; echo $?')
+        if galaxy_accessible == '0':
+            print(yellow("Galaxy started"))
+            break
+        print("Waiting for Galaxy to start...")
+        time.sleep(6)
+        counter += 1
+        if counter > 20:
+            print(red("This seems to be taking longer than expected. Manual check?"))
 
 def _update_snaps_latest_file(filesystem, snap_id, vol_size, **kwargs):
     bucket_name = DEFAULT_BUCKET_NAME
@@ -200,12 +229,12 @@ def _get_bucket(bucket_name):
     s3_conn = S3Connection()
     b = None
     for i in range(0, 5):
-		try:
-			b = s3_conn.get_bucket(bucket_name)
-			break
-		except S3ResponseError: 
-			print "Bucket '%s' not found, attempt %s/5" % (bucket_name, i)
-			return None
+        try:
+            b = s3_conn.get_bucket(bucket_name)
+            break
+        except S3ResponseError: 
+            print "Bucket '%s' not found, attempt %s/5" % (bucket_name, i)
+            return None
     return b
 
 def _get_date_file_last_modified_on_S3(bucket_name, file_name):
@@ -220,9 +249,9 @@ def _get_date_file_last_modified_on_S3(bucket_name, file_name):
         except S3ResponseError, e:
             print "Failed to get file '%s' from bucket '%s': %s" % (file_name, bucket_name, e)
             return ""
-    	except ValueError, e:
+        except ValueError, e:
             print "Failed to format file '%s' last modified: %s" % (file_name, e)
-    	    return ""
+            return ""
 
 def _rename_file_in_S3(new_key_name, bucket_name, old_key_name):
     b = _get_bucket(bucket_name)
@@ -233,8 +262,8 @@ def _rename_file_in_S3(new_key_name, bucket_name, old_key_name):
             print "Successfully renamed file '%s' in bucket '%s' to '%s'." % (old_key_name, bucket_name, new_key_name)
             return True
         except S3ResponseError, e:
-    	     print "Failed to rename file '%s' in bucket '%s' as file '%s': %s" % (old_key_name, bucket_name, new_key_name, e)
-    	     return False
+             print "Failed to rename file '%s' in bucket '%s' as file '%s': %s" % (old_key_name, bucket_name, new_key_name, e)
+             return False
 
 def _save_file_to_bucket(bucket_name, remote_filename, local_file, **kwargs):
     """ Save the local_file to bucket_name as remote_filename. Also, any additional
@@ -288,7 +317,7 @@ def _attach( ec2_conn, instance_id, volume_id, device ):
         
         volumes = ec2_conn.get_all_volumes( [volume_id] )
         volumestatus = volumes[0].attachment_state()
-        time.sleep( 3 )
+        time.sleep(3)
     return True
 
 def _detach( ec2_conn, instance_id, volume_id ):
@@ -309,7 +338,7 @@ def _detach( ec2_conn, instance_id, volume_id ):
             break
         if counter == 29:
             print "Volume '%s' FAILED to detach to instance '%s'." % ( volume_id, instance_id )
-        time.sleep( 3 )
+        time.sleep(3)
         volumes = ec2_conn.get_all_volumes( [volume_id] )
         volumestatus = volumes[0].status
 
@@ -319,7 +348,7 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
     Wait until the snapshot process is complete (note that this may take quite a while)
     """
     s_time = dt.datetime.now()
-    print "Initiating snapshot of EBS volume '%s' in region '%s' (start time %s)" % (volume_id, ec2_conn.region.name, s_time)
+    print(yellow("Initiating snapshot of EBS volume '%s' in region '%s' (start time %s)" % (volume_id, ec2_conn.region.name, s_time)))
     snapshot = ec2_conn.create_snapshot(volume_id, description=description)
     if snapshot: 
         while snapshot.status != 'completed':
