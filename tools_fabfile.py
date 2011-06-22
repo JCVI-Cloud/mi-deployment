@@ -13,6 +13,7 @@ from contextlib import contextmanager, nested
 # from fabric.api import *
 # from fabric.contrib.files import *
 from fabric.api import sudo, run, env, cd
+from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings, hide, append
 from fabric.colors import green, yellow
 
@@ -56,7 +57,9 @@ def install_tools():
     # _required_libraries() # currently, nothing there
     # _support_programs() # currently, nothing there
     _install_tools()
-    _install_galaxy()
+    answer = confirm("Would you like to install Galaxy (or update if installed)?")
+    if answer:
+        _install_galaxy()
     sudo("chown --recursive galaxy:galaxy %s" % os.path.split(env.install_dir)[0])
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of tools installation: %s" % str(time_end-time_start)))
@@ -121,8 +124,7 @@ def _install_galaxy():
             install_cmd('hg clone http://bitbucket.org/galaxy/galaxy-central/')
     with cd(env.galaxy_home):
         if not is_new:
-            install_cmd('hg pull')
-            install_cmd('hg update')
+            install_cmd('hg --config ui.merge=internal:local pull --update')
             install_cmd('sh manage_db.sh upgrade')
         # Make sure Galaxy runs in a new shell and does not inherit the environment
         # by adding the '-ES' flag to all invocations of python within run.sh
@@ -492,7 +494,7 @@ def _install_macs():
     print(green("----- MACS %s installed to %s -----" % (version, install_dir)))
 
 def _install_tophat():
-    version = '1.2.0'
+    version = '1.3.0'
     url = 'http://tophat.cbcb.umd.edu/downloads/tophat-%s.Linux_x86_64.tar.gz' % version
     pkg_name = "tophat"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -512,7 +514,7 @@ def _install_tophat():
     print(green("----- TopHat %s installed to %s -----" % (version, install_dir)))
 
 def _install_cufflinks():
-    version = '1.0.1'
+    version = '1.0.3'
     url = 'http://cufflinks.cbcb.umd.edu/downloads/cufflinks-%s.Linux_x86_64.tar.gz' % version
     pkg_name = "cufflinks"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
