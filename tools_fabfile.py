@@ -35,8 +35,10 @@ def _amazon_ec2_environment():
     volume to it, creating a file system on it, and mounting it at below paths.
     """
     env.user = 'ubuntu'
+    env.galaxy_user = 'galaxy'
     env.install_dir = '/mnt/galaxyTools/tools'
     env.galaxy_home = '/mnt/galaxyTools/galaxy-central'
+    env.update_default = True # If True, set the tool's `default` directory to point to the tool version currently being installed
     env.tmp_dir = "/mnt"
     env.shell = "/bin/bash -l -c"
     env.use_sudo = True
@@ -60,7 +62,7 @@ def install_tools():
     answer = confirm("Would you like to install Galaxy (or update if installed)?")
     if answer:
         _install_galaxy()
-    sudo("chown --recursive galaxy:galaxy %s" % os.path.split(env.install_dir)[0])
+    sudo("chown --recursive %s:%s %s" % (env.galaxy_user, env.galaxy_user, os.path.split(env.install_dir)[0]))
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of tools installation: %s" % str(time_end-time_start)))
 
@@ -203,6 +205,7 @@ def _install_tools():
     _install_mosaik()
     _install_freebayes()
     _install_picard()
+    _install_fastqc()
 
 def _install_R():
     version = "2.11.1"
@@ -735,7 +738,7 @@ def _install_perm():
     print(green("----- PerM %s installed to %s -----" % (version, install_dir)))
 
 def _install_gatk():
-    version = '1.0.5777'
+    version = '1.0.5974'
     url = 'ftp://ftp.broadinstitute.org/pub/gsa/GenomeAnalysisTK/GenomeAnalysisTK-%s.tar.bz2' % version
     pkg_name = 'gatk'
     install_dir_root = os.path.join(env.install_dir, pkg_name)
@@ -757,7 +760,17 @@ def _install_gatk():
     sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     # default link
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    # Link jar to Galaxy's jar dir
+    jar_dir = os.path.join(env.galaxy_home, 'tool-data', 'shared', 'jars', pkg_name)
+    if not exists(jar_dir):
+        install_cmd("mkdir -p %s" % jar_dir)
+    tool_dir = os.path.join(env.install_dir, pkg_name, 'default', 'bin')
+    install_cmd('ln --force --symbolic %s/*.jar %s/.' % (tool_dir, jar_dir))
+    install_cmd('chown --recursive %s:%s %s' % (env.galaxy_user, env.galaxy_user, jar_dir))    
 
 def _install_srma():
     version = '0.1.15'
@@ -959,7 +972,7 @@ def _install_freebayes():
     print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_picard():
-    version = '1.45'
+    version = '1.48'
     mirror_info = "?use_mirror=voxel"
     url = 'http://downloads.sourceforge.net/project/picard/picard-tools/%s/picard-tools-%s.zip' \
             % (version, version)
@@ -976,8 +989,36 @@ def _install_picard():
     sudo("touch %s/env.sh" % install_dir)
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
-    print(green("----- Picard %s installed to %s -----" % (version, install_dir)))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    # set up the jars directory
+    jar_dir = os.path.join(env.galaxy_home, 'tool-data', 'shared', 'jars')
+    if not exists(jar_dir):
+        install_cmd("mkdir -p %s" % jar_dir)
+    tool_dir = os.path.join(env.install_dir, pkg_name, 'default')
+    install_cmd('ln --force --symbolic %s/*.jar %s/.' % (tool_dir, jar_dir))
+    install_cmd('chown --recursive %s:%s %s' % (env.galaxy_user, env.galaxy_user, jar_dir))
+    print(green("----- Picard %s installed to %s and linked to %s -----" % (version, install_dir, jar_dir)))
+
+def _install_fastqc():
+    """ This tool is installed in Galaxy's jars dir """
+    version = '0.9.2'
+    url = 'http://www.bioinformatics.bbsrc.ac.uk/projects/fastqc/fastqc_v%s.zip' % version
+    pkg_name = 'FastQC'
+    install_dir = os.path.join(env.galaxy_home, 'tool-data', 'shared', 'jars')
+    install_cmd = sudo if env.use_sudo else run
+    if not exists(install_dir):
+        install_cmd("mkdir -p %s" % install_dir)
+    with cd(install_dir):
+        install_cmd("wget %s -O %s" % (url, os.path.split(url)[-1]))
+        install_cmd("unzip %s" % (os.path.split(url)[-1]))
+        install_cmd("rm %s" % (os.path.split(url)[-1]))
+        with cd(pkg_name):
+            install_cmd('chmod 755 fastqc')
+        install_cmd('chown --recursive %s:%s %s' % (env.galaxy_user, env.galaxy_user, pkg_name))
+    print(green("----- FastQC v%s installed to %s -----" % (version, install_dir)))
 
 def _required_libraries():
     """Install galaxy libraries not included in the eggs.
