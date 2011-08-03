@@ -14,55 +14,63 @@ from contextlib import contextmanager, nested
 # from fabric.contrib.files import *
 from fabric.api import sudo, run, env, cd
 from fabric.contrib.console import confirm
-from fabric.contrib.files import exists, settings, hide, append
-from fabric.colors import green, yellow
+from fabric.contrib.files import exists, settings, hide
+from fabric.colors import green, yellow, red
 
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 
-# -- Host specific setup for various groups of servers.
+# -- Geneal environment setup
 env.user = 'ubuntu'
-env.use_sudo = False
+env.use_sudo = True
+env.cloud = False # Flag to indicate if running on a cloud deployment
 
 # -- Provide methods for easy switching between specific environment setups for 
 # different deployment scenarios (an environment must be loaded as the first line
 # in any invokable function)
 def _amazon_ec2_environment():
     """Environment setup for Galaxy on Ubuntu 10.04 on EC2
-    
+    Use this environment as a template 
     NOTE: This script/environment assumes given environment directories are available.
     Typically, this would assume starting an EC2 instance, attaching an EBS
     volume to it, creating a file system on it, and mounting it at below paths.
     """
     env.user = 'ubuntu'
     env.galaxy_user = 'galaxy'
-    env.install_dir = '/mnt/galaxyTools/tools'
-    env.galaxy_home = '/mnt/galaxyTools/galaxy-central'
+    env.install_dir = '/mnt/galaxyTools/tools' # Install all tools under this dir
+    env.galaxy_home = '/mnt/galaxyTools/galaxy-central' # Where Galaxy is/will be installed
+    env.galaxy_loc_files = '/mnt/galaxyIndices/galaxy/galaxy-data' # Where Galaxy's .loc files are stored
     env.update_default = True # If True, set the tool's `default` directory to point to the tool version currently being installed
     env.tmp_dir = "/mnt"
     env.shell = "/bin/bash -l -c"
     env.use_sudo = True
+    env.cloud = True
+    print(yellow("Loaded Amazon EC2 environment"))
 
 # -- Fabric instructions
 
 def install_tools():
-    """Deploy a Galaxy server along with associated data files.
+    """Deploy a Galaxy server along with some tools.
     """
     _check_fabric_version()
+    ok = True # Flag indicating if the process is coming along fine
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     _amazon_ec2_environment()
+    # Need to ensure the install dir exists and is owned by env.galaxy_user
     if not exists(env.install_dir):
         sudo("mkdir -p %s" % env.install_dir)
-    append("/etc/bash.bashrc", "export PATH=PATH=%s/bin:$PATH" % env.install_dir, use_sudo=True)
+        sudo("chown %s %s" % (env.galaxy_user, os.path.split(env.install_dir)[0]))
     _required_packages()
     # _required_libraries() # currently, nothing there
     # _support_programs() # currently, nothing there
     _install_tools()
-    answer = confirm("Would you like to install Galaxy (or update if installed)?")
+    answer = confirm("Would you like to install Galaxy?")
     if answer:
-        _install_galaxy()
-    sudo("chown --recursive %s:%s %s" % (env.galaxy_user, env.galaxy_user, os.path.split(env.install_dir)[0]))
+        ok = _install_galaxy()
+    if env.user != env.galaxy_user and env.use_sudo and ok:
+        # Ensure that everything under install dir is owned by env.galaxy_user
+        sudo("chown --recursive %s:%s %s" % (env.galaxy_user, env.galaxy_user, os.path.split(env.install_dir)[0]))
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of tools installation: %s" % str(time_end-time_start)))
 
@@ -106,10 +114,10 @@ def _make_tmp_dir():
         install_cmd("rm -rf %s" % work_dir)
 
 def _required_packages():
-    """Install needed packages using apt-get"""
+    """Installs packages required to build the tools"""
     packages = ['xfsprogs', # if not done by hand, required for EBS file system
-                'unzip', 
-                'gcc', 
+                'unzip',
+                'gcc',
                 'g++',
                 'pkg-config', # required by fastx-toolkit
                 'zlib1g-dev', # required by bwa
@@ -118,53 +126,58 @@ def _required_packages():
         sudo("apt-get -y --force-yes install %s" % package)
 
 def _install_galaxy():
-    is_new = False
-    install_cmd = sudo if env.use_sudo else run
-    if not exists(env.galaxy_home):
-        is_new = True
-        with cd(os.path.split(env.galaxy_home)[0]):
-            install_cmd('hg clone http://bitbucket.org/galaxy/galaxy-central/')
-    with cd(env.galaxy_home):
-        if not is_new:
-            install_cmd('hg --config ui.merge=internal:local pull --update')
-            install_cmd('sh manage_db.sh upgrade')
+    """ Used to install Galaxy and setup its environment.
+    This method cannot be used to update an existing instance of Galaxy code; see
+    volume_manipulations_fab.py script for that functionality.
+    Also, this method is somewhat targeted for the EC2 deployment so some tweaking
+    of the code may be desirable."""
+    if exists(env.galaxy_home):
+        if exists(os.path.join(env.galaxy_home, '.hg')):
+            print(red("Galaxy install dir '%s' exists and seems to have a Mercurial repository already there. Is Galaxy already installed? Exiting.") % env.galaxy_home)
+            return False
+        else:
+            if not confirm("Galaxy install dir '%s' already exists. Are you sure you want to try to install Galaxy here?" % env.galaxy_home):
+                return True
+    with cd(os.path.split(env.galaxy_home)[0]):
+        sudo('hg clone http://bitbucket.org/galaxy/galaxy-central/', user=env.galaxy_user)
+    with cd(env.galaxy_home):# and settings(warn_only=True):
         # Make sure Galaxy runs in a new shell and does not inherit the environment
         # by adding the '-ES' flag to all invocations of python within run.sh
-        with settings(warn_only=True):
-            install_cmd("sed -i 's/python .\//python -ES .\//g' run.sh")
-        # Append DRMAA_LIBRARY_PATH in run.sh as well (this file will exist
-        # once SGE is installed - which happens at instance contextualization)
-        with settings(warn_only=True):
-            install_cmd("grep -q 'export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; if [ $? -eq 1 ]; then sed -i '2 a export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; fi")
+        sudo("sed -i 's/python .\//python -ES .\//g' run.sh", user=env.galaxy_user)
+        if env.cloud:
+            # Append DRMAA_LIBRARY_PATH in run.sh as well (this file will exist
+            # once SGE is installed - which happens at instance contextualization)
+            sudo("grep -q 'export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; if [ $? -eq 1 ]; then sed -i '2 a export DRMAA_LIBRARY_PATH=/opt/sge/lib/lx24-amd64/libdrmaa.so.1.0' run.sh; fi", user=env.galaxy_user)
             # Upload the custom cloud welcome screen files
             if not exists("%s/static/images/cloud.gif" % env.galaxy_home):
-                sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (env.galaxy_home, CDN_ROOT_URL))
+                sudo("wget --output-document=%s/static/images/cloud.gif %s/cloud.gif" % (env.galaxy_home, CDN_ROOT_URL), user=env.galaxy_user)
             if not exists("%s/static/images/cloud_txt.png" % env.galaxy_home):
-                sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (env.galaxy_home, CDN_ROOT_URL))
-            sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (env.galaxy_home, CDN_ROOT_URL))
-        # set up the symlink for SAMTOOLS (remove this code once SAMTOOLS is converted to data tables)
+                sudo("wget --output-document=%s/static/images/cloud_text.png %s/cloud_text.png" % (env.galaxy_home, CDN_ROOT_URL), user=env.galaxy_user)
+            sudo("wget --output-document=%s/static/welcome.html %s/welcome.html" % (env.galaxy_home, CDN_ROOT_URL), user=env.galaxy_user)
+        # Set up the symlink for SAMTOOLS (remove this code once SAMTOOLS is converted to data tables)
         if exists("%s/tool-data/sam_fa_indices.loc" % env.galaxy_home):
-            install_cmd("rm %s/tool-data/sam_fa_indices.loc" % env.galaxy_home)
+            sudo("rm %s/tool-data/sam_fa_indices.loc" % env.galaxy_home, user=env.galaxy_user)
         tmp_loc = False
-        if not exists("/mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc"):
-            install_cmd("touch /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
+        if not exists("%s/sam_fa_indices.loc" % env.galaxy_loc_files):
+            sudo("touch %s/sam_fa_indices.loc" % env.galaxy_loc_files, user=env.galaxy_user)
             tmp_loc = True
-        install_cmd("ln -s /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % env.galaxy_home)
+        sudo("ln -s %s/sam_fa_indices.loc %s/tool-data/sam_fa_indices.loc" % (env.galaxy_loc_files, env.galaxy_home), user=env.galaxy_user)
         if tmp_loc:
-            install_cmd("rm /mnt/galaxyIndices/galaxy/tool-data/sam_fa_indices.loc")
+            sudo("rm %s/sam_fa_indices.loc" % env.galaxy_loc_files, user=env.galaxy_user)
         # set up the special HYPHY link in tool-data/
         hyphy_dir = os.path.join(env.install_dir, 'hyphy', 'default')
-        install_cmd('ln -s %s tool-data/HYPHY' % hyphy_dir)
-        # set up the jars directory
+        sudo('ln -s %s tool-data/HYPHY' % hyphy_dir, user=env.galaxy_user)
+        # set up the jars directory for Java tools
         if not exists('tool-data/shared/jars'):
-            install_cmd("mkdir -p tool-data/shared/jars")
+            sudo("mkdir -p tool-data/shared/jars", user=env.galaxy_user)
         srma_dir = os.path.join(env.install_dir, 'srma', 'default')
         haploview_dir = os.path.join(env.install_dir, 'haploview', 'default')
         picard_dir = os.path.join(env.install_dir, 'picard', 'default')
-        install_cmd('ln -s %s/srma.jar tool-data/shared/jars/.' % srma_dir)
-        install_cmd('ln -s %s/haploview.jar tool-data/shared/jars/.' % haploview_dir)
-        install_cmd('ln -s %s/*.jar tool-data/shared/jars/.' % picard_dir)
-
+        sudo('ln -s %s/srma.jar tool-data/shared/jars/.' % srma_dir, user=env.galaxy_user)
+        sudo('ln -s %s/haploview.jar tool-data/shared/jars/.' % haploview_dir, user=env.galaxy_user)
+        sudo('ln -s %s/*.jar tool-data/shared/jars/.' % picard_dir, user=env.galaxy_user)
+    return True
+    
 # == NGS
 
 def _install_tools():
