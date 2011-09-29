@@ -101,9 +101,7 @@ def make_snapshot(galaxy=None):
             _attach(ec2_conn, instance_id, fs_vol.id, device_id)
             sudo("mount %s %s" % (device_id, fs_path))
             if galaxy:
-                answer = confirm("Would you like to start Galaxy on instance?")
-                if answer:
-                    _start_galaxy()
+                _start_galaxy()
         elif confirm("Would you like to delete the *old* volume '%s' then?" % fs_vol.id):
             _delete_volume(ec2_conn, fs_vol.id)
         if not answer: # Old volume was not re-attached, maybe crete a new one 
