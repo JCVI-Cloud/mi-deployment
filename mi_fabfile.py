@@ -1,9 +1,17 @@
 """Fabric (http://docs.fabfile.org) deployment file to set up a machine ready to
-run Galaxy (http://galaxyproject.org). This is primarily used to by Cloudman 
-(http://usegalaxy.org/cloud) and Galaxy VM (http://usegalaxy.org/vm) projects.
+run CloudMan (http://usegalaxy.org/cloud) with Galaxy (http://galaxyproject.org).
 
 Usage:
-    fab -f mi_fabfile.py -i full_path_to_private_key_file -H servername <configure_MI[:do_rebundle] | rebundle>
+    fab -f mi_fabfile.py -i private_key_file -H servername <configure_MI[:galaxy][,do_rebundle] | rebundle>
+
+Options:
+    configure_MI => configure machine image by installing all of the parts
+                    required to run CloudMan. Provisions for a to-be NFS mounted
+                    user data directory will be made at /mnt/galaxyData path
+    configre_MI:galaxy => configure machine image for CloudMan with Galaxy
+    configure_MI:galaxy,do_rebundle => automatically initiate machine image
+                    rebundle upon completion of configuration
+    rebundle => rebundle the machine image without doing any configuration
 """
 import os, os.path, time, contextlib, tempfile
 import datetime as dt
@@ -16,14 +24,13 @@ try:
 except:
     boto = None
 
-# from fabric.api import *
-# from fabric.contrib.files import *
 from fabric.api import sudo, run, env, cd, put, local
 from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings, hide, contains, append
+from fabric.operations import reboot
 from fabric.colors import red, green, yellow
 
-AMI_DESCRIPTION = "Galaxy CloudMan on Ubuntu 10.04" # Value used for AMI description field
+AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
@@ -38,7 +45,7 @@ REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 # -- Provide methods for easy switching between specific environment setups for 
 # different deployment scenarios (an environment must be loaded as the first line
 # in any invokable function)
-def _amazon_ec2_environment():
+def _amazon_ec2_environment(galaxy=False):
     """ Environment setup for Galaxy on Ubuntu 10.04 on EC2 """
     env.user = 'ubuntu'
     env.use_sudo = True
@@ -46,6 +53,7 @@ def _amazon_ec2_environment():
     env.install_dir = '/opt/galaxy/pkg'
     env.tmp_dir = "/mnt"
     env.galaxy_files = '/mnt/galaxy'
+    env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
     env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
@@ -79,20 +87,6 @@ stop on runlevel [01456]
 
 exec /usr/sbin/rabbitmq-multi start_all 1 > /var/log/rabbitmq/startup_log 2> /var/log/rabbitmq/startup_err 
 # respawn
-"""
-
-welcome_msg_template = """#!/bin/sh
-echo
-echo "Welcome to Galaxy CloudMan!"
-echo " * Documentation:  http://galaxyproject.org/cloud"
-"""
-
-landscape_sysinfo_template = """#!/bin/sh
-echo
-echo -n "  System information as of "
-/bin/date
-echo
-/usr/bin/landscape-sysinfo
 """
 
 xvfb_init_template = """#!/bin/sh
@@ -225,7 +219,7 @@ def _make_tmp_dir():
 
 # -- Fabric instructions
 
-def configure_MI(do_rebundle=False):
+def configure_MI(galaxy=False, do_rebundle=False):
     """
     Configure the base Machine Image (MI) to be used with Galaxy Cloud:
     http://usegalaxy.org/cloud
@@ -234,9 +228,9 @@ def configure_MI(do_rebundle=False):
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print "Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)
-    _amazon_ec2_environment()
-    _update_system()
-    _required_packages() 
+    _amazon_ec2_environment(galaxy)
+    # _update_system()
+    _required_packages()
     _setup_users()
     _required_programs()
     _required_libraries()
@@ -249,7 +243,7 @@ def configure_MI(do_rebundle=False):
     else:
         do_rebundle = False
         reboot_if_needed = False
-    if do_rebundle or confirm("Would you like to bundle this instance into a new machine image?"):
+    if do_rebundle or confirm("Would you like to bundle this instance into a new machine image (note that this applies and was testtg only on EC2 instances)?"):
         rebundle(reboot_if_needed)
 
 # == system
@@ -271,43 +265,51 @@ def _setup_sources():
 
 def _required_packages():
     """Install needed packages using apt-get"""
-    packages = ['stow', 
-                'xfsprogs', 
-                'unzip', 
-                'gcc', 
-                'g++', 
-                'nfs-kernel-server', 
-                'zlib1g-dev', 
-                'libssl-dev', 
-                'libpcre3-dev', 
-                'libreadline5-dev', 
-                'rabbitmq-server',
-                'git-core',
-                'mercurial', 
-                'subversion',
-                'postgresql',
-                'gfortran',
-                'python-rpy',
-                'openjdk-6-jdk',
-                'axel',
-                'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
-                'r-cran-qvalue', # required by Compute q-values
-                'r-bioc-hilbertvis', # required by HVIS
-                'tcl-dev', # required by various R modules
-                'tk-dev', # required by various R modules
-                'imagemagick', # required by RGalaxy
-                'pdfjam', # required by RGalaxy
-                'python-scipy', # required by RGalaxy
-                'libsparsehash-dev', # Pull from outside (e.g., yaml file)?
-                'xvfb' ] # required by R's pdf() output
+    # Disable prompts during install/upgrade of rabbitmq-server package
+    sudo('echo "rabbitmq-server rabbitmq-server/upgrade_previous note" | debconf-set-selections')
+    # default packages required by CloudMan
+    packages = ['stow',
+                'xfsprogs',
+                'unzip',
+                'gcc', # Required to compile nginx
+                'g++',
+                'nfs-kernel-server',
+                'zlib1g-dev',
+                'libssl-dev',
+                'libreadline5-dev',
+                'libpcre3-dev', # Required to compile nginx
+                'git-core', # Required to install boto from source
+                'rabbitmq-server'] # Required by CloudMan for communication between instances
+    # Additional packages required for Galaxy images
+    if env.galaxy_too:
+        packages += ['mercurial', 
+                    'subversion',
+                    'postgresql',
+                    'gfortran',
+                    'python-rpy',
+                    'openjdk-6-jdk',
+                    'axel', # Parallel file download (used by Galaxy ObjectStore)
+                    'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
+                    'r-cran-qvalue', # required by Compute q-values
+                    'r-bioc-hilbertvis', # required by HVIS
+                    'tcl-dev', # required by various R modules
+                    'tk-dev', # required by various R modules
+                    'imagemagick', # required by RGalaxy
+                    'pdfjam', # required by RGalaxy
+                    'python-scipy', # required by RGalaxy
+                    'libsparsehash-dev', # Pull from outside (e.g., yaml file)?
+                    'xvfb' ] # required by R's pdf() output
     for package in packages:
         sudo("apt-get -y --force-yes install %s" % package)
+    print(green("----- Required system packages installed -----"))
 
 # == users
-
 def _setup_users():
-    _add_user('galaxy', '1001') # Must specify uid for 'galaxy' user because of the configuration for proFTPd
     _add_user('sgeadmin')
+    # These users are required regardless of type of install because some 
+    # CloudMan code uses those. 'galaxy' user can be considered a generic 
+    # end user account and used for such a purpose.
+    _add_user('galaxy', '1111') # Must specify uid for 'galaxy' user because of the configuration for proFTPd
     _add_user('postgres')
 
 def _add_user(username, uid=None):
@@ -315,13 +317,12 @@ def _add_user(username, uid=None):
     if not contains('/etc/passwd', "%s:" % username):
         print(yellow("System user '%s' not found; adding it now." % username))
         if uid:
-            sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" --uid %s --user-group %s' % (username, uid, username))
+            sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"CloudMan-required user" --uid %s --user-group %s' % (username, uid, username))
         else:
-            sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"Galaxy-required user" --user-group %s' % (username, username))
+            sudo('useradd -d /home/%s --create-home --shell /bin/bash -c"CloudMan-required user" --user-group %s' % (username, username))
         print(green("Added system user '%s'" % username))
 
 # == required programs
-
 def _required_programs():
     """ Install required programs """
     if not exists(env.install_dir):
@@ -335,14 +336,15 @@ def _required_programs():
     append('/etc/bash.bashrc', "export DISPLAY=:42", use_sudo=True)
     # Install required programs
     _get_sge()
-    _install_nginx()
-    # _install_postgresql()
-    _configure_postgresql()
     _install_setuptools()
-    _install_proftpd()
-    _install_samtools()
-    _install_openmpi()
-    _install_r_packages()
+    _install_nginx()
+    if env.galaxy_too:
+        # _install_postgresql()
+        _configure_postgresql()
+        _install_proftpd()
+        _install_samtools()
+        _install_openmpi()
+        _install_r_packages()
 
 def _get_sge():
     url = "%s/ge62u5_lx24-amd64.tar.gz" % CDN_ROOT_URL
@@ -371,7 +373,8 @@ def _install_nginx():
     url = "http://nginx.org/download/nginx-%s.tar.gz" % version
     install_dir = os.path.join(env.install_dir, "nginx")
     with _make_tmp_dir() as work_dir:
-        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+        # with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+        with cd(work_dir):
             run("wget %s" % url)
             run("tar xvzf %s" % os.path.split(url)[1])
             with cd("nginx-%s" % version):
@@ -527,8 +530,8 @@ def _required_libraries():
     libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob']
     for library in libraries:
         sudo("easy_install %s" % library)
-    
-    _install_boto()
+    print(green("----- Required python libraries installed -----"))
+    _install_boto() # or use packaged version above as part of easy_install
 
 # @_if_not_installed # FIXME: check if boto is installed or just enable installation of an updated version
 def _install_boto():
@@ -545,10 +548,11 @@ def _install_boto():
 def _configure_environment():
     _configure_ec2_autorun()
     _configure_sge()
-    _configure_galaxy_env()
     _configure_nfs()
     _configure_bash()
-    _configure_xvfb()
+    if env.galaxy_too:
+        _configure_galaxy_env()
+        _configure_xvfb()
 
 def _configure_ec2_autorun():
     url = os.path.join(REPO_ROOT_URL, "ec2autorun.py")
@@ -590,33 +594,16 @@ def _configure_galaxy_env():
     os.remove(SGE_request_file)
 
 def _configure_nfs():
-    exports = [ '/opt/sge           *(rw,sync,no_root_squash,no_subtree_check)', 
+    exports = [ '/opt/sge           *(rw,sync,no_root_squash,no_subtree_check)',
                 '/mnt/galaxyData    *(rw,sync,no_root_squash,subtree_check,no_wdelay)',
-                '/mnt/galaxyIndices *(rw,sync,no_root_squash,no_subtree_check)',
-                '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)',
                 '%s/openmpi         *(rw,sync,no_root_squash,no_subtree_check)' % env.install_dir]
+    if env.galaxy_too:
+        exports += ['/mnt/galaxyIndices *(rw,sync,no_root_squash,no_subtree_check)',
+                    '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)']
     append('/etc/exports', exports, use_sudo=True)
 
 def _configure_bash():
     """Some convenience/preference settings"""
-    # Customize instance login welcome message
-    welcome_msg_template_file = '10-help-text'
-    with open( welcome_msg_template_file, 'w' ) as f:
-        print >> f, welcome_msg_template
-    remote_file = '/etc/update-motd.d/%s' % welcome_msg_template_file
-    _put_as_user(welcome_msg_template_file, remote_file, user='root', mode=755)
-    os.remove(welcome_msg_template_file)
-    
-    landscape_sysinfo_template
-    landscape_sysinfo_template_file = '50-landscape-sysinfo'
-    with open( landscape_sysinfo_template_file, 'w' ) as f:
-        print >> f, landscape_sysinfo_template
-    remote_file = '/etc/update-motd.d/%s' % landscape_sysinfo_template_file
-    _put_as_user(landscape_sysinfo_template_file, remote_file, user='root', mode=755)
-    os.remove(landscape_sysinfo_template_file)
-    
-    sudo('if [ -f /etc/update-motd.d/51_update_motd ]; then rm -f /etc/update-motd.d/51_update_motd; fi')
-    
     append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
 
 def _configure_xvfb():
@@ -669,7 +656,7 @@ def rebundle(reboot_if_needed=False):
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
         
         # Handle reboot if required
-        if _reboot(ec2_conn, instance_id, reboot_if_needed):
+        if not _reboot(instance_id, reboot_if_needed):
             return False # Indicates that rebundling was not completed and should be restarted
         
         _clean() # Clean up the environment before rebundling
@@ -773,7 +760,7 @@ def rebundle(reboot_if_needed=False):
     else:
         return False
 
-def _reboot(ec2_conn, instance_id, force=False):
+def _reboot(instance_id, force=False):
     """
     Reboot current instance if required. Reboot can be forced by setting the 
     method's 'force' parameter to True.
@@ -789,33 +776,34 @@ def _reboot(ec2_conn, instance_id, force=False):
         if not force:
             answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
         if force or answer:
-            print "Rebooting instance with ID '%s'" % instance_id
+            wait_time = 35
+            print "Rebooting instance with ID '%s' and waiting %s seconds" % (instance_id, wait_time)
             try:
-                ec2_conn.reboot_instances([instance_id])
-                wait_time = 35
-                # reboot(wait_time)
-                print "Instance '%s' with IP '%s' rebooted. Waiting (%s sec) for it to come back up." % (instance_id, env.hosts[0], str(wait_time))
-                time.sleep(wait_time)
-                for i in range(30):
-                    ssh = None
-                    with settings(warn_only=True):
-                        print "Checking ssh connectivity to instance '%s'" % env.hosts[0]
-                        ssh = local('ssh -o StrictHostKeyChecking=no -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
-                    if ssh.return_code == 0:
-                        print(green("\n--------------------------"))
-                        print(green("Machine '%s' is alive" % env.hosts[0]))
-                        print(green("This script will exit now. Invoke it again while passing method name 'rebundle' as the last argument to the fab script."))
-                        print(green("--------------------------\n"))
-                        return True
-                    else:
-                        print "Still waiting..."
-                        time.sleep(3)
-                    if i == 29:
-                        print(red("Machine '%s' did not respond for while now, aborting" % env.hosts[0]))
-                        return True
-            except EC2ResponseError, e:
-                print(red("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e)))
-                return False
+                reboot(wait_time)
+                return True
+                # ec2_conn.reboot_instances([instance_id]) - to enable this back up, will need to change method signature
+                # print "Instance '%s' with IP '%s' rebooted. Waiting (%s sec) for it to come back up." % (instance_id, env.hosts[0], str(wait_time))
+                # time.sleep(wait_time)
+                # for i in range(30):
+                #     ssh = None
+                #     with settings(warn_only=True):
+                #         print "Checking ssh connectivity to instance '%s'" % env.hosts[0]
+                #         ssh = local('ssh -o StrictHostKeyChecking=no -i %s %s@%s "exit"' % (env.key_filename[0], env.user, env.hosts[0]))
+                #     if ssh.return_code == 0:
+                #         print(green("\n--------------------------"))
+                #         print(green("Machine '%s' is alive" % env.hosts[0]))
+                #         print(green("This script will exit now. Invoke it again while passing method name 'rebundle' as the last argument to the fab script."))
+                #         print(green("--------------------------\n"))
+                #         return True
+                #     else:
+                #         print "Still waiting..."
+                #         time.sleep(3)
+                #     if i == 29:
+                #         print(red("Machine '%s' did not respond for while now, aborting" % env.hosts[0]))
+                #         return True
+            # except EC2ResponseError, e:
+            #     print(red("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e)))
+            #     return False
             except Exception, e:
                 print(red("Error rebooting instance '%s' with IP '%s': %s" % (instance_id, env.hosts[0], e)))
                 print(red("Try running this script again with 'rebundle' as the last argument."))
@@ -823,6 +811,7 @@ def _reboot(ec2_conn, instance_id, force=False):
         else:
             print(red("Cannot rebundle without instance reboot. Aborting rebundling."))
             return False
+    return True # Default to OK
 
 def _attach( ec2_conn, instance_id, volume_id, device ):
     """
