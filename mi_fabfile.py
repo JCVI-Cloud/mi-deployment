@@ -13,7 +13,7 @@ Options:
                     rebundle upon completion of configuration
     rebundle => rebundle the machine image without doing any configuration
 """
-import os, os.path, time, contextlib, tempfile
+import os, os.path, time, contextlib, tempfile, yaml
 import datetime as dt
 from contextlib import contextmanager
 try:
@@ -49,10 +49,8 @@ def _amazon_ec2_environment(galaxy=False):
     """ Environment setup for Galaxy on Ubuntu 10.04 on EC2 """
     env.user = 'ubuntu'
     env.use_sudo = True
-    env.path = '/mnt/galaxyTools/galaxy-central'
     env.install_dir = '/opt/galaxy/pkg'
     env.tmp_dir = "/mnt"
-    env.galaxy_files = '/mnt/galaxy'
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
@@ -227,7 +225,7 @@ def configure_MI(galaxy=False, do_rebundle=False):
     """
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
-    print "Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)
+    print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     _amazon_ec2_environment(galaxy)
     # _update_system()
     _required_packages()
@@ -236,7 +234,7 @@ def configure_MI(galaxy=False, do_rebundle=False):
     _required_libraries()
     _configure_environment() 
     time_end = dt.datetime.utcnow()
-    print "Duration of machine configuration: %s" % str(time_end-time_start)
+    print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
     if do_rebundle == 'do_rebundle':
         do_rebundle = True
         reboot_if_needed = True
@@ -550,6 +548,7 @@ def _configure_environment():
     _configure_sge()
     _configure_nfs()
     _configure_bash()
+    _save_image_conf_support()
     if env.galaxy_too:
         _configure_galaxy_env()
         _configure_xvfb()
@@ -605,6 +604,21 @@ def _configure_nfs():
 def _configure_bash():
     """Some convenience/preference settings"""
     append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
+
+def _save_image_conf_support():
+    """Save the type of image configuration performed to a file on the image
+       as a yaml file. This supports flexibility so additional customizations
+       and/or apps can natively be supported through CloudMan."""
+    apps = ['cloudman']
+    if env.galaxy_too:
+        apps.append('galaxy')
+    isa = {'apps': apps}
+    isf = 'imageConfig.yaml'
+    with open(isf, 'w') as f:
+        yaml.dump(isa, f, default_flow_style=False)
+    _put_as_user(isf, os.path.join(env.install_dir, isf), user='root', mode=0644)
+    os.remove(isf)
+    print(green("Image configuration support saved to file %s" % os.path.join(env.install_dir, isf)))
 
 def _configure_xvfb():
     """Configure the virtual X framebuffer which is necessary for a couple tools."""
