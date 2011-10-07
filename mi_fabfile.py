@@ -185,9 +185,9 @@ def _if_not_installed(pname):
             with settings(warn_only=True):
                 result = run(pname)
             if result.return_code == 127:
-                print "'%s' not installed; return code: '%s'" % (pname, result.return_code)
+                print(yellow("'%s' not installed; return code: '%s'" % (pname, result.return_code)))
                 return func(*args, **kwargs)
-            print "'%s' is already installed; return code: '%s'" % (pname, result.return_code)
+            print(green("'%s' is already installed" % pname))
         return decorator
     return argcatcher
 
@@ -227,7 +227,7 @@ def configure_MI(galaxy=False, do_rebundle=False):
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     _amazon_ec2_environment(galaxy)
-    # _update_system()
+    _update_system()
     _required_packages()
     _setup_users()
     _required_programs()
@@ -286,6 +286,9 @@ def _required_packages():
                     'gfortran',
                     'python-rpy',
                     'openjdk-6-jdk',
+                    'libopenmpi-dev',
+                    'libopenmpi1.3',
+                    'openmpi-bin',
                     'axel', # Parallel file download (used by Galaxy ObjectStore)
                     'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
                     'r-cran-qvalue', # required by Compute q-values
@@ -303,12 +306,12 @@ def _required_packages():
 
 # == users
 def _setup_users():
-    _add_user('sgeadmin')
     # These users are required regardless of type of install because some 
     # CloudMan code uses those. 'galaxy' user can be considered a generic 
     # end user account and used for such a purpose.
-    _add_user('galaxy', '1111') # Must specify uid for 'galaxy' user because of the configuration for proFTPd
+    _add_user('galaxy', '1001') # Must specify uid for 'galaxy' user because of the configuration for proFTPd
     _add_user('postgres')
+    _add_user('sgeadmin')
 
 def _add_user(username, uid=None):
     """ Add user with username to the system """
@@ -329,9 +332,12 @@ def _required_programs():
     
     # Setup global environment for all users
     install_dir = os.path.split(env.install_dir)[0]
-    append('/etc/bash.bashrc', "export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir), use_sudo=True)
-    append('/etc/bash.bashrc', "export LD_LIBRARY_PATH=%s/lib" % install_dir, use_sudo=True)
-    append('/etc/bash.bashrc', "export DISPLAY=:42", use_sudo=True)
+    exports = [ "export PATH=%s/bin:%s/sbin:$PATH" % (install_dir, install_dir),
+                "export LD_LIBRARY_PATH=%s/lib" % install_dir,
+                "export DISPLAY=:42"]
+    for e in exports:
+        if not contains('/etc/bash.bashrc', e):
+            append('/etc/bash.bashrc', e, use_sudo=True)
     # Install required programs
     _get_sge()
     _install_setuptools()
@@ -341,49 +347,52 @@ def _required_programs():
         _configure_postgresql()
         _install_proftpd()
         _install_samtools()
-        _install_openmpi()
         _install_r_packages()
 
 def _get_sge():
+    sge_dir = 'ge6.2u5'
     url = "%s/ge62u5_lx24-amd64.tar.gz" % CDN_ROOT_URL
     install_dir = env.install_dir
-    with _make_tmp_dir() as work_dir:
-        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
-            run("wget %s" % url)
-            sudo("chown %s %s" % (env.user, install_dir))
-            run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
-            print(green("----- SGE downloaded and extracted to '%s' -----" % install_dir))
+    if not exists(os.path.join(install_dir, sge_dir, 'ge-6.2u5-bin-lx24-amd64.tar.gz') or \
+        os.path.join(install_dir, sge_dir, 'ge-6.2u5-common.tar.gz')):
+        with _make_tmp_dir() as work_dir:
+            with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
+                run("wget %s" % url)
+                sudo("chown %s %s" % (env.user, install_dir))
+                run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
+                print(green("----- SGE downloaded and extracted to '%s' -----" % install_dir))
+    else:
+        print(green("SGE already exists at '%s'" % install_dir))
 
-# @_if_not_installed("nginx") # FIXME: this call is actually going to start nginx and never return...
 def _install_nginx():
+    version = "0.7.67"
     upload_module_version = "2.0.12"
-    url = "http://www.grid.net.ru/nginx/download/nginx_upload_module-%s.tar.gz" % upload_module_version
-    install_dir = env.install_dir
+    upload_url = "http://www.grid.net.ru/nginx/download/" \
+                 "nginx_upload_module-%s.tar.gz" % upload_module_version
+    url = "http://nginx.org/download/nginx-%s.tar.gz" % version
+    
+    install_dir = os.path.join(env.install_dir, "nginx")
+    remote_conf_dir = os.path.join(install_dir, "conf")
+    
+    # skip install if already present
+    if exists(remote_conf_dir) and contains(os.path.join(remote_conf_dir, "nginx.conf"), "/cloud"):
+        return
+    
     with _make_tmp_dir() as work_dir:
         with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
-            run("wget %s" % url)
-            # Maybe this can be untared to tmp dir and removed after installation?
-            sudo("chown %s %s" % (env.user, install_dir))
-            run("tar -C %s -xvzf %s" % (install_dir, os.path.split(url)[1]))
-            print(green("----- nginx upload module downloaded and extracted to '%s' -----" % install_dir))
-    
-    version = "0.7.67"
-    url = "http://nginx.org/download/nginx-%s.tar.gz" % version
-    install_dir = os.path.join(env.install_dir, "nginx")
-    with _make_tmp_dir() as work_dir:
-        # with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
-        with cd(work_dir):
+            run("wget %s" % upload_url)
+            run("tar -xvzpf %s" % os.path.split(upload_url)[1])
             run("wget %s" % url)
             run("tar xvzf %s" % os.path.split(url)[1])
             with cd("nginx-%s" % version):
-                run("./configure --prefix=%s --with-ipv6 --add-module=%s/nginx_upload_module-%s --user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module" % (install_dir, env.install_dir, upload_module_version))
+                run("./configure --prefix=%s --with-ipv6 --add-module=../nginx_upload_module-%s --user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module" % (install_dir, upload_module_version))
                 run("make")
                 sudo("make install")
-                sudo("cd %s; stow nginx" % env.install_dir)
-                
+                with settings(warn_only=True):
+                    sudo("cd %s; stow nginx" % env.install_dir)
+    
     nginx_conf_file = 'nginx.conf'
     url = os.path.join(REPO_ROOT_URL, nginx_conf_file)
-    remote_conf_dir = os.path.join(install_dir, "conf")
     with cd(remote_conf_dir):
         sudo("wget --output-document=%s/%s %s" % (remote_conf_dir, nginx_conf_file, url))
     
@@ -393,6 +402,11 @@ def _install_nginx():
     with cd(remote_errdoc_dir):
         sudo("wget --output-document=%s/%s %s" % (remote_errdoc_dir, nginx_errdoc_file, url))
         sudo('tar xvzf %s' % nginx_errdoc_file)
+    
+    cloudman_default_dir = "/opt/galaxy/sbin"
+    sudo("mkdir -p %s" % cloudman_default_dir)
+    if not exists("%s/nginx" % cloudman_default_dir):
+        sudo("ln -s %s/sbin/nginx %s/nginx" % (install_dir, cloudman_default_dir))
     print(green("----- nginx installed and configured -----"))
 
 @_if_not_installed("pg_ctl")
@@ -426,7 +440,9 @@ def _configure_postgresql(delete_main_dbcluster=False):
     pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d' ' | cut -f1 -d'-' | cut -f1-2 -d'.'")
     if delete_main_dbcluster:
         sudo('pg_dropcluster --stop %s main' % pg_ver, user='postgres')
-    append('/etc/bash.bashrc', "export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver, use_sudo=True)
+    exp = "export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver
+    if not contains('/etc/bash.bashrc', exp):
+        append('/etc/bash.bashrc', exp, use_sudo=True)
     print(green("----- PostgreSQL configured -----"))
 
 @_if_not_installed("easy_install")
@@ -445,6 +461,10 @@ def _install_proftpd():
     postgres_ver = "8.4"
     url = "ftp://mirrors.ibiblio.org/proftpd/distrib/source/proftpd-%s.tar.gz" % version
     install_dir = os.path.join(env.install_dir, 'proftpd')
+    remote_conf_dir = os.path.join(install_dir, "etc")
+    # skip install if already present
+    if exists(remote_conf_dir):
+        return
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s" % url)
@@ -465,15 +485,15 @@ def _install_proftpd():
                 welcome_msg_file = 'welcome_msg.txt'
                 conf_url = os.path.join(REPO_ROOT_URL, 'conf_files', proftpd_conf_file)
                 welcome_url = os.path.join(REPO_ROOT_URL, 'conf_files', welcome_msg_file)
-                remote_conf_dir = os.path.join(install_dir, "etc")
                 sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, proftpd_conf_file), conf_url))
                 sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, welcome_msg_file), welcome_url))
                 sudo("cd %s; stow proftpd" % env.install_dir)
                 print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
 
+@_if_not_installed("samtools")
 def _install_samtools():
-    version = "0.1.12"
-    vext = "a"
+    version = "0.1.18"
+    vext = ""
     mirror_info = "?use_mirror=cdnetworks-us-1"
     url = "http://downloads.sourceforge.net/project/samtools/samtools/%s/" \
             "samtools-%s%s.tar.bz2" % (version, version, vext)
@@ -491,23 +511,6 @@ def _install_samtools():
                 for install in ["samtools", "misc/maq2sam-long"]:
                     install_cmd("mv -f %s %s" % (install, install_dir))
                 print "----- SAMtools %s installed to %s -----" % (version, install_dir)
-
-def _install_openmpi():
-    version = "1.4.2"
-    url = "http://www.open-mpi.org/software/ompi/v1.4/downloads/openmpi-%s.tar.gz" % version
-    install_dir = os.path.join(env.install_dir, "openmpi")
-    with _make_tmp_dir() as work_dir:
-        with contextlib.nested(cd(work_dir), settings(hide('stdout'))):
-            run("wget %s" % url)
-            run("tar xvzf %s" % os.path.split(url)[1])
-            with cd("openmpi-%s" % version):
-                run("./configure --prefix=%s --with-sge --enable-orterun-prefix-by-default" % install_dir)
-                with settings(hide('stdout')):
-                    print "Making OpenMPI..."
-                    sudo("make all install")
-                    sudo("cd %s; stow openmpi" % env.install_dir)
-                    # append('/etc/bash.bashrc', "export PATH=%s/bin:$PATH" % install_dir, use_sudo=True)
-                print(green("----- OpenMPI %s installed to %s -----" % (version, install_dir)))
 
 def _install_r_packages():
     f = tempfile.NamedTemporaryFile()
@@ -593,14 +596,28 @@ def _configure_galaxy_env():
     os.remove(SGE_request_file)
 
 def _configure_nfs():
-    exports = [ '/opt/sge           *(rw,sync,no_root_squash,no_subtree_check)',
-                '/mnt/galaxyData    *(rw,sync,no_root_squash,subtree_check,no_wdelay)',
-                '%s/openmpi         *(rw,sync,no_root_squash,no_subtree_check)' % env.install_dir]
+    nfs_dir = "/export/data"
+    cloudman_dir = "/mnt/galaxyData/export"
+    if not exists(nfs_dir):
+        sudo("mkdir -p %s" % os.path.dirname(nfs_dir))
+    sudo("chown -R ubuntu %s" % os.path.dirname(nfs_dir))
+    with settings(warn_only=True):
+        run("ln -s %s %s" % (cloudman_dir, nfs_dir))
+    nfs_file = '/etc/exports'
+    if not contains(nfs_file, '/opt/sge'):
+        append(nfs_file, '/opt/sge           *(rw,sync,no_root_squash,no_subtree_check)', use_sudo=True)
+    if not contains(nfs_file, '/mnt/galaxyData'):
+        append(nfs_file, '/mnt/galaxyData    *(rw,sync,no_root_squash,subtree_check,no_wdelay)', use_sudo=True)
+    if not contains(nfs_file, nfs_dir):
+        append(nfs_file, '%s       *(rw,sync,no_root_squash,no_subtree_check)' % nfs_dir, use_sudo=True)
+    if not contains(nfs_file, '%s/openmpi' % env.install_dir):
+        append(nfs_file, '%s/openmpi         *(rw,sync,no_root_squash,no_subtree_check)' % env.install_dir, use_sudo=True)
     if env.galaxy_too:
-        exports += ['/mnt/galaxyIndices *(rw,sync,no_root_squash,no_subtree_check)',
-                    '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)']
-    append('/etc/exports', exports, use_sudo=True)
-
+        if not contains(nfs_file, '/mnt/galaxyIndices'):
+            append(nfs_file, '/mnt/galaxyIndices *(rw,sync,no_root_squash,no_subtree_check)', use_sudo=True)
+        if not contains(nfs_file, '/mnt/galaxyTools'):
+            append(nfs_file, '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)', use_sudo=True)
+    print(green("NFS /etc/exports dir configured"))
 def _configure_bash():
     """Some convenience/preference settings"""
     append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
@@ -896,8 +913,9 @@ def _create_snapshot(ec2_conn, volume_id, description=None):
 
 def _clean_rabbitmq_env():
     """
-    RabbitMQ fails to start if its database is embedded into the image because it saves the current
-    IP address or host name so delete it now. When starting up, RabbitMQ will recreate that directory.
+    RabbitMQ fails to start if its database is embedded into the image because
+    it saves the current IP address or host name so delete it now. When starting
+    up, RabbitMQ will recreate that directory.
     """
     print "Cleaning RabbitMQ environment"
     with settings(warn_only=True):
@@ -910,6 +928,13 @@ def _clean_rabbitmq_env():
 
 def _clean():
     """Clean up the image before rebundling"""
+    fnames = [".bash_history", "/var/log/firstboot.done", ".nx_setup_done",
+              "/var/crash/*", "%s/ec2autorun.py.log" % env.install_dir]
+    for fname in fnames:
+        sudo("rm -f %s" % fname)
+    rmdirs = ["/mnt/galaxyData", "/mnt/cm", "/tmp/cm"]
+    for rmdir in rmdirs:
+        sudo("rm -rf %s" % rmdir)
     # Make sure RabbitMQ environment is clean
     _clean_rabbitmq_env()
     # Stop Apache from starting automatically at boot (it conflicts with Galaxy's nginx)
