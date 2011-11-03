@@ -7,6 +7,7 @@ Usage:
 from __future__ import with_statement
 
 import os
+import time
 import datetime as dt
 from contextlib import contextmanager, nested
 
@@ -71,6 +72,7 @@ def install_tools():
     if env.user != env.galaxy_user and env.use_sudo and ok:
         # Ensure that everything under install dir is owned by env.galaxy_user
         sudo("chown --recursive %s:%s %s" % (env.galaxy_user, env.galaxy_user, os.path.split(env.install_dir)[0]))
+        sudo("chmod 755 %s" % os.path.split(env.install_dir)[0])
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of tools installation: %s" % str(time_end-time_start)))
 
@@ -424,8 +426,8 @@ def _install_maq():
 
 # @_if_not_installed("bfast")
 def _install_bfast():
-    version = "0.6.4"
-    vext = "e"
+    version = "0.7.0"
+    vext = "a"
     url = "http://downloads.sourceforge.net/project/bfast/bfast/%s/bfast-%s%s.tar.gz"\
             % (version, version, vext)
     pkg_name = 'bfast'
@@ -442,12 +444,15 @@ def _install_bfast():
     sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- BFAST %s installed to %s -----" % (version, install_dir)))
 
 # @_if_not_installed("ABYSS")
 def _install_abyss():
-    version = "1.2.5"
+    version = "1.3.1"
     url = "http://www.bcgsc.ca/downloads/abyss/abyss-%s.tar.gz" % version
     pkg_name = 'abyss'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -463,11 +468,14 @@ def _install_abyss():
     sudo("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- ABySS %s installed to %s -----" % (version, install_dir)))
 
 def _install_velvet():
-    version = "1.0.13"
+    version = "1.1.06"
     url = "http://www.ebi.ac.uk/~zerbino/velvet/velvet_%s.tgz" % version
     pkg_name = "velvet"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -481,15 +489,21 @@ def _install_velvet():
             with cd("velvet_%s" % version):
                 run("make")
                 for fname in run("find -perm -100 -name 'velvet*'").split("\n"):
-                    install_cmd("mv -f %s %s" % (fname, install_dir))
+                    with settings(warn_only=True):
+                        tmp_cmd = "mv -f %s %s" % (fname, install_dir)
+                        print "tmp_cmd: %s" % tmp_cmd
+                        install_cmd(tmp_cmd)
     sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- Velvet %s installed to %s -----" % (version, install_dir)))
 
 def _install_macs():
-    version = "1.3.7.1"
+    version = "1.4.1"
     url = "http://liulab.dfci.harvard.edu/MACS/src/MACS-%s.tar.gz" % version
     pkg_name = "macs"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -506,11 +520,14 @@ def _install_macs():
     sudo("echo 'PYTHONPATH=%s/lib/python2.6/site-packages:$PYTHONPATH' >> %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- MACS %s installed to %s -----" % (version, install_dir)))
 
 def _install_tophat():
-    version = '1.3.0'
+    version = '1.3.3'
     url = 'http://tophat.cbcb.umd.edu/downloads/tophat-%s.Linux_x86_64.tar.gz' % version
     pkg_name = "tophat"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -526,11 +543,14 @@ def _install_tophat():
     sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- TopHat %s installed to %s -----" % (version, install_dir)))
 
 def _install_cufflinks():
-    version = '1.0.3'
+    version = '1.1.0'
     url = 'http://cufflinks.cbcb.umd.edu/downloads/cufflinks-%s.Linux_x86_64.tar.gz' % version
     pkg_name = "cufflinks"
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -546,7 +566,10 @@ def _install_cufflinks():
     sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- Cufflinks %s installed to %s -----" % (version, install_dir)))
 
 def _install_megablast():
@@ -751,7 +774,7 @@ def _install_perm():
     print(green("----- PerM %s installed to %s -----" % (version, install_dir)))
 
 def _install_gatk():
-    version = '1.0.5974'
+    version = '1.2-65-ge4a583a'
     url = 'ftp://ftp.broadinstitute.org/pub/gsa/GenomeAnalysisTK/GenomeAnalysisTK-%s.tar.bz2' % version
     pkg_name = 'gatk'
     install_dir_root = os.path.join(env.install_dir, pkg_name)
@@ -783,7 +806,8 @@ def _install_gatk():
         install_cmd("mkdir -p %s" % jar_dir)
     tool_dir = os.path.join(env.install_dir, pkg_name, 'default', 'bin')
     install_cmd('ln --force --symbolic %s/*.jar %s/.' % (tool_dir, jar_dir))
-    install_cmd('chown --recursive %s:%s %s' % (env.galaxy_user, env.galaxy_user, jar_dir))    
+    install_cmd('chown --recursive %s:%s %s' % (env.galaxy_user, env.galaxy_user, jar_dir))
+    print(green("----- GATK %s installed to %s -----" % (version, install_dir)))
 
 def _install_srma():
     version = '0.1.15'
@@ -942,7 +966,7 @@ def _install_eigenstrat():
     print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_mosaik():
-    version = "1.1.0017"
+    version = "1.1.0021"
     url = "http://mosaik-aligner.googlecode.com/files/Mosaik-%s-Linux-x64.tar.bz2" % version
     pkg_name = 'mosaik'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -961,11 +985,14 @@ def _install_mosaik():
     install_cmd("echo 'PATH=%s/bin:$PATH' > %s/env.sh" % (install_dir, install_dir))
     install_cmd("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    install_cmd('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_freebayes():
-    version = "0.6.6" # this seems to be bogus at this point considering it's repo
+    version = time.strftime("%Y-%m-%d") # set version to today's date considering it's a repo
     url = "git://github.com/ekg/freebayes.git"
     pkg_name = 'freebayes'
     install_dir = os.path.join(env.install_dir, pkg_name, version)
@@ -974,18 +1001,21 @@ def _install_freebayes():
         install_cmd("mkdir -p %s" % install_dir)
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
-            install_cmd("git clone %s" % url)
+            install_cmd("git clone --recursive %s" % url)
             with cd("freebayes"):
                 install_cmd("make")
                 install_cmd("mv bin/* %s" % install_dir)
     install_cmd("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     install_cmd("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
-    install_cmd('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
+    if env.update_default:
+        sudo('ln --symbolic --no-dereference --force %s %s/default' % (install_dir, install_dir_root))
+    else:
+        sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     print(green("----- %s %s installed to %s -----" % (pkg_name, version, install_dir)))
 
 def _install_picard():
-    version = '1.48'
+    version = '1.55'
     mirror_info = "?use_mirror=voxel"
     url = 'http://downloads.sourceforge.net/project/picard/picard-tools/%s/picard-tools-%s.zip' \
             % (version, version)
@@ -1007,7 +1037,7 @@ def _install_picard():
     else:
         sudo('if [ ! -d %s/default ]; then ln -s %s %s/default; fi' % (install_dir_root, install_dir, install_dir_root))
     # set up the jars directory
-    jar_dir = os.path.join(env.galaxy_home, 'tool-data', 'shared', 'jars')
+    jar_dir = os.path.join(env.galaxy_home, 'tool-data', 'shared', 'jars', 'picard')
     if not exists(jar_dir):
         install_cmd("mkdir -p %s" % jar_dir)
     tool_dir = os.path.join(env.install_dir, pkg_name, 'default')
@@ -1017,7 +1047,7 @@ def _install_picard():
 
 def _install_fastqc():
     """ This tool is installed in Galaxy's jars dir """
-    version = '0.9.2'
+    version = '0.10.0'
     url = 'http://www.bioinformatics.bbsrc.ac.uk/projects/fastqc/fastqc_v%s.zip' % version
     pkg_name = 'FastQC'
     install_dir = os.path.join(env.galaxy_home, 'tool-data', 'shared', 'jars')
