@@ -21,7 +21,7 @@ from fabric.colors import green, yellow, red
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 
-# -- Geneal environment setup
+# -- General environment setup
 env.user = 'ubuntu'
 env.use_sudo = True
 env.cloud = False # Flag to indicate if running on a cloud deployment
@@ -121,7 +121,6 @@ def _required_packages():
                 'unzip',
                 'gcc',
                 'g++',
-                'cmake', # required for freebayes
                 'pkg-config', # required by fastx-toolkit
                 'zlib1g-dev', # required by bwa
                 'libncurses5-dev' ]# required by SAMtools
@@ -134,6 +133,11 @@ def _install_galaxy():
     volume_manipulations_fab.py script for that functionality.
     Also, this method is somewhat targeted for the EC2 deployment so some tweaking
     of the code may be desirable."""
+    # MP: we need to have a tmp directory available if files already exist in the galaxy install directory
+    install_cmd = sudo if env.use_sudo else run
+    tmp_dir = os.path.join(env.tmp_dir, "fab_tmp")
+    if exists(tmp_dir):
+        install_cmd("rm -rf %s" % tmp_dir)
     if exists(env.galaxy_home):
         if exists(os.path.join(env.galaxy_home, '.hg')):
             print(red("Galaxy install dir '%s' exists and seems to have a Mercurial repository already there. Is Galaxy already installed? Exiting.") % env.galaxy_home)
@@ -141,8 +145,22 @@ def _install_galaxy():
         else:
             if not confirm("Galaxy install dir '%s' already exists. Are you sure you want to try to install Galaxy here?" % env.galaxy_home):
                 return True
+            # MP: need to move any files already in galaxy home so that hg can checkout files.
+            if not exists(tmp_dir):
+                install_cmd("mkdir %s" % tmp_dir)
+                install_cmd("chown %s %s" % (env.user, tmp_dir))
+            install_cmd("mv %s/* %s" % (env.galaxy_home, tmp_dir))
     with cd(os.path.split(env.galaxy_home)[0]):
-        sudo('hg clone http://bitbucket.org/galaxy/galaxy-central/', user=env.galaxy_user)
+        #MP needs to be done as non galaxy user, otherwise we have a permissions problem.
+        sudo('hg clone https://bitbucket.org/galaxy/galaxy-central/')
+    # MP: now we need to move the files back into the galaxy directory.
+    if exists(tmp_dir):
+        install_cmd("cp -R %s/* %s" % (tmp_dir, env.galaxy_home))
+        install_cmd("rm -rf %s" % tmp_dir)
+    # MP: Ensure that everything under install dir is owned by env.galaxy_user
+    sudo("chown --recursive %s:%s %s" % (env.galaxy_user, env.galaxy_user, os.path.split(env.install_dir)[0]))
+    sudo("chmod 755 %s" % os.path.split(env.install_dir)[0])
+    
     with cd(env.galaxy_home):# and settings(warn_only=True):
         # Make sure Galaxy runs in a new shell and does not inherit the environment
         # by adding the '-ES' flag to all invocations of python within run.sh
@@ -312,7 +330,7 @@ def _install_bowtie():
             with cd("bowtie-%s" % version):
                 run("make")
                 for fname in run("find -perm -100 -name 'bowtie*'").split("\n"):
-                    install_cmd("mv -f %s %s" % (fname, install_dir))
+                    install_cmd("mv -f %s %s" % (fname.strip(), install_dir))
     sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
     sudo("chmod +x %s/env.sh" % install_dir)
     install_dir_root = os.path.join(env.install_dir, pkg_name)
@@ -463,6 +481,12 @@ def _install_abyss():
             run("tar -xvzf %s" % (os.path.split(url)[-1]))
             install_cmd = sudo if env.use_sudo else run
             with cd("abyss-%s" % version):
+                # Get boost first
+                run("wget http://downloads.sourceforge.net/project/boost/boost/1.47.0/boost_1_47_0.tar.bz2")
+                run("tar jxf boost_1_47_0.tar.bz2")
+                run("ln -s boost_1_47_0/boost boost")
+                run("rm boost_1_47_0.tar.bz2")
+                # Get back to abyss
                 run("./configure --prefix=%s --with-mpi=/opt/galaxy/pkg/openmpi" % install_dir)
                 run("make")
                 install_cmd("make install")
