@@ -121,6 +121,7 @@ def _required_packages():
                 'unzip',
                 'gcc',
                 'g++',
+                'cmake', # required for freebayes
                 'pkg-config', # required by fastx-toolkit
                 'zlib1g-dev', # required by bwa
                 'libncurses5-dev' ]# required by SAMtools
