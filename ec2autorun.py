@@ -14,7 +14,7 @@ from urlparse import urlparse
 
 from boto.s3.connection import S3Connection
 from boto.s3.key import Key
-from boto.exception import S3ResponseError
+from boto.exception import S3ResponseError,BotoServerError
 logging.getLogger('boto').setLevel(logging.INFO) # Only log boto messages >=INFO
 
 
@@ -25,7 +25,7 @@ LOCAL_PATH = '/tmp/cm' # Local path destination used for storing/reading any fil
 USER_DATA_FILE_NAME = 'userData.yaml' # Local file with user data formatted by this script
 USER_DATA_FILE = os.path.join(LOCAL_PATH, USER_DATA_FILE_NAME) 
 USER_DATA_ORIG = os.path.join(LOCAL_PATH, 'original_%s' % USER_DATA_FILE_NAME) # Local file containing user data in its original format
-SERVICE_ROOT = 'http://s3.amazonaws.com/' # Obviously, customized for Amazon's S3
+S3_URL = 'http://s3.amazonaws.com/' # Default for Amazon's S3 - override in _handle_yaml(), based on s3_url in user-data 
 DEFAULT_BUCKET_NAME = 'cloudman' # Ensure this bucket is accessible to anyone!
 DEFAULT_BOOT_SCRIPT_NAME = 'cm_boot.py' # Ensure this file is accessible to anyone in the public bucket!
 CLOUDMAN_HOME = '/mnt/cm'
@@ -71,13 +71,37 @@ def _isurl(path):
     scheme, netloc, upath, uparams, uquery, ufrag = urlparse(path)
     return bool(scheme and netloc)
 
-def _get_s3_conn(access_key, secret_key):
+def _get_s3_conn(ud):
+    access_key = ud['access_key']
+    secret_key = ud['secret_key']
     log.debug('Establishing boto S3 connection')
-    try:
-        s3_conn = S3Connection(access_key, secret_key)
-        log.debug('Got boto S3 connection.')
-    except Exception, e:
-        log.error("Exception getting S3 connection: %s" % e)
+    if ud.has_key('s3_url'): # override the S3 host to e.g. Eucalyptus
+        url = urlparse(ud['s3_url'])
+        host = url.hostname
+        port = url.port
+        path = url.path
+        if url.scheme == 'https':
+            is_secure = True
+        else:
+            is_secure = False
+        try:
+            s3_conn = S3Connection(
+                aws_access_key_id = access_key,
+                aws_secret_access_key = secret_key,
+                is_secure = is_secure,
+                port = port,
+                host = host,
+                path = path,
+            )
+            log.debug('Got boto S3 connection to %s' % ud['s3_url'])
+        except Exception, e:
+            log.error("Exception getting S3 connection: %s" % e)
+    else: # default to Amazon connection
+        try:
+            s3_conn = S3Connection(access_key, secret_key)
+            log.debug('Got boto S3 connection.')
+        except BotoServerError, e:
+            log.error("Exception getting S3 connection: %s" % e)
     return s3_conn
 
 def _bucket_exists(s3_conn, bucket_name):
@@ -189,7 +213,7 @@ def _get_boot_script(ud):
     else:
         default_bucket_name = DEFAULT_BUCKET_NAME
     if ud.has_key('bucket_cluster') and ud['access_key'] is not None and ud['secret_key'] is not None:
-        s3_conn = _get_s3_conn(ud['access_key'], ud['secret_key'])
+        s3_conn = _get_s3_conn(ud)
         # Check if user's bucket exists or use the default one
         if not _bucket_exists(s3_conn, ud['bucket_cluster']) or not _remote_file_exists(s3_conn, ud['bucket_cluster'], ud['boot_script_name']):
             log.debug("Using default bucket '%s'" % default_bucket_name)
@@ -217,7 +241,7 @@ def _get_boot_script(ud):
         log.debug("Saved boot script to '%s'" % os.path.join(LOCAL_PATH, DEFAULT_BOOT_SCRIPT_NAME))
         # Save downloaded boot script to user's bucket for future invocations 
         if ud.has_key('bucket_cluster') and ud['bucket_cluster']:
-            s3_conn = _get_s3_conn(ud['access_key'], ud['secret_key'])
+            s3_conn = _get_s3_conn(ud)
             if _bucket_exists(s3_conn, ud['bucket_cluster']) and not _remote_file_exists(s3_conn, ud['bucket_cluster'], ud['boot_script_name']):
                 _save_file_to_bucket(s3_conn, ud['bucket_cluster'], ud['boot_script_name'], DEFAULT_BOOT_SCRIPT_NAME)        
         return True
@@ -258,7 +282,10 @@ def _get_default_bucket_url(ud=None):
         default_bucket_name = DEFAULT_BUCKET_NAME
     # TODO: Check if th bucket 'default_bucket_name' is accessible to everyone 
     # because it is being accessed as a URL
-    bucket_url = os.path.join(SERVICE_ROOT, default_bucket_name)
+    s3_url = S3_URL
+    if ud and ud.has_key('s3_url'):
+        s3_url = ud['s3_url']
+    bucket_url = os.path.join(s3_url, default_bucket_name)
     print "Default bucket url: %s" % default_bucket_name
     return bucket_url
 
