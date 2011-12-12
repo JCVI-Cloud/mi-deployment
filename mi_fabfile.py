@@ -54,7 +54,7 @@ def _amazon_ec2_environment(galaxy=False):
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
-    env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
+    env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu natty/"]
 
 
 # == Templates
@@ -157,7 +157,7 @@ esac
 
 r_packages_template = """
 r <- getOption("repos");
-r["CRAN"] <- "http://watson.nci.nih.gov/cran_mirror";
+r["CRAN"] <- "http://cran.stat.ucla.edu";
 options(repos=r);
 install.packages( c( "DBI", "RColorBrewer", "RCurl", "RSQLite", "XML", "biglm",
   "bitops", "digest", "ggplot2", "graph", "hexbin", "hwriter", "kernlab",
@@ -226,6 +226,7 @@ def configure_MI(galaxy=False, do_rebundle=False):
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
+    _add_hostname_to_hosts()
     _amazon_ec2_environment(galaxy)
     _update_system()
     _required_packages()
@@ -245,6 +246,19 @@ def configure_MI(galaxy=False, do_rebundle=False):
         rebundle(reboot_if_needed)
 
 # == system
+
+def _add_hostname_to_hosts():
+    """Adds the hostname to /etc/hosts, if it is not being assigned by DNS -- required for rabbitmq installation
+    """
+    # TODO figure out a way so set cloud-init to automatically update this on future boots
+    hostname=run("cat /etc/hostname")
+    host_not_found=run("ping -c 1 {0} >/dev/null 2>/dev/null; echo $?".format(hostname))
+    if host_not_found:
+        sudo("""perl -i.orig -ne 'BEGIN {{$h=shift @ARGV}}
+        next if/\\Q$h\\E/;
+        s/^(127\\.0\\.0\\.1\\s+localhost)$/$1\n127.0.1.1 $h/;
+        print' {0} /etc/hosts
+        """.format(hostname))
 
 def _update_system():
     """Runs standard system update"""
@@ -267,6 +281,8 @@ def _required_packages():
     sudo('echo "rabbitmq-server rabbitmq-server/upgrade_previous note" | debconf-set-selections')
     # default packages required by CloudMan
     packages = ['stow',
+                'make',
+                'python-pip', # for installing python programs
                 'xfsprogs',
                 'unzip',
                 'gcc', # Required to compile nginx
@@ -340,7 +356,7 @@ def _required_programs():
             append('/etc/bash.bashrc', e, use_sudo=True)
     # Install required programs
     _get_sge()
-    _install_setuptools()
+    # _install_setuptools()
     _install_nginx()
     if env.galaxy_too:
         # _install_postgresql()
@@ -445,7 +461,7 @@ def _configure_postgresql(delete_main_dbcluster=False):
         append('/etc/bash.bashrc', exp, use_sudo=True)
     print(green("----- PostgreSQL configured -----"))
 
-@_if_not_installed("easy_install")
+# @_if_not_installed("easy_install")
 def _install_setuptools():
     version = "0.6c11"
     python_version = "2.6"
@@ -530,7 +546,7 @@ def _required_libraries():
     # Libraries to be be installed using easy_install
     libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob']
     for library in libraries:
-        sudo("easy_install %s" % library)
+        sudo("pip install %s" % library)
     print(green("----- Required python libraries installed -----"))
     _install_boto() # or use packaged version above as part of easy_install
 
