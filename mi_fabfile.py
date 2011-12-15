@@ -696,6 +696,7 @@ def rebundle(reboot_if_needed=False):
         # Select appropriate region:
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         instance_region = availability_zone[:-1] # Truncate zone letter to get region name
+        # TODO modify _get_ec2_conn to take the url parameters
         ec2_conn = _get_ec2_conn(instance_region)
         vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
@@ -961,7 +962,8 @@ def _clean():
             sudo('rm -f %s' % cf)
 
 def _get_ec2_conn(instance_region='us-east-1'):
-    regions = boto.ec2.regions()
+    # TODO fix AWS specific region information
+    regions = boto.ec2.regions()  
     print "Found regions: %s; trying to match to instance region: %s" % (regions, instance_region)
     region = None
     for r in regions:
@@ -972,6 +974,7 @@ def _get_ec2_conn(instance_region='us-east-1'):
         print(red("ERROR discovering a region; try running this script again using 'rebundle' as the last argument."))
         return None
     try:
+        # TODO fix to detect, connect to euca as well 
         ec2_conn = EC2Connection(region=region)
         return ec2_conn
     except EC2ResponseError, e:
