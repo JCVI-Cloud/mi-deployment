@@ -102,6 +102,7 @@ def _get_s3_conn(ud):
             log.debug('Got boto S3 connection.')
         except BotoServerError, e:
             log.error("Exception getting S3 connection: %s" % e)
+            raise e
     return s3_conn
 
 def _bucket_exists(s3_conn, bucket_name):
