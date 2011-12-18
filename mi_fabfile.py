@@ -54,7 +54,8 @@ def _amazon_ec2_environment(galaxy=False):
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
-    env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu natty/"]
+    #env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu lucid/"]
+    env.std_sources = ["deb http://us.archive.ubuntu.com/ubuntu/ lucid main restricted"]
 
 
 # == Templates
@@ -226,14 +227,14 @@ def configure_MI(galaxy=False, do_rebundle=False):
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-    _add_hostname_to_hosts()
-    _amazon_ec2_environment(galaxy)
-    _update_system()
-    _required_packages()
-    _setup_users()
-    _required_programs()
-    _required_libraries()
-    _configure_environment() 
+#    _add_hostname_to_hosts()
+#    _amazon_ec2_environment(galaxy)
+#    _update_system()
+#    _required_packages()
+#    _setup_users()
+#    _required_programs()
+#    _required_libraries()
+#    _configure_environment() 
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
     if do_rebundle == 'do_rebundle':
@@ -692,12 +693,15 @@ def rebundle(reboot_if_needed=False):
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
     _amazon_ec2_environment()
-    if boto:
+    flag=1
+    if flag:
         # Select appropriate region:
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
-        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
+        instance_region = availability_zone#[:-1] # Truncate zone letter to get region name
+        print(red(instance_region))
         # TODO modify _get_ec2_conn to take the url parameters
-        ec2_conn = _get_ec2_conn(instance_region)
+        #ec2_conn = _get_ec2_conn(instance_region)
+        ec2_conn = boto.connect_euca()
         vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
@@ -707,9 +711,10 @@ def rebundle(reboot_if_needed=False):
         if not _reboot(instance_id, reboot_if_needed):
             return False # Indicates that rebundling was not completed and should be restarted
         
-        _clean() # Clean up the environment before rebundling
+        #_clean() # Clean up the environment before rebundling
         image_id = None
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
+        print(red(kernel_id))                                                                                                                                    
         if instance_id and availability_zone and kernel_id:
             print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
