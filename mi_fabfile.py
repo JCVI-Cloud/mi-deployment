@@ -13,16 +13,21 @@ Options:
                     rebundle upon completion of configuration
     rebundle => rebundle the machine image without doing any configuration
 """
-import os, os.path, time, contextlib, tempfile, yaml
+import os, os.path, time, contextlib, tempfile, yaml, boto
 import datetime as dt
 from contextlib import contextmanager
-try:
-    boto = __import__("boto")
-    from boto.ec2.connection import EC2Connection
-    from boto.exception import EC2ResponseError
-    from boto.ec2.blockdevicemapping import BlockDeviceType, BlockDeviceMapping
-except:
-    boto = None
+#try:
+#boto = __import__("boto")
+from boto import __init__
+from boto.ec2.connection import EC2Connection
+from boto.exception import EC2ResponseError
+from boto import *
+from boto.ec2 import EC2Connection
+from boto.ec2.regioninfo import RegionInfo
+#from boto.ec2.blockdevicemapping import BlockDeviceType, BlockDeviceMapping
+#except:
+    #boto = None
+#    flag = 1
 
 from fabric.api import sudo, run, env, cd, put, local
 from fabric.contrib.console import confirm
@@ -694,14 +699,15 @@ def rebundle(reboot_if_needed=False):
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
     _amazon_ec2_environment()
     flag=1
-    if flag:
+    if boto:
         # Select appropriate region:
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         instance_region = availability_zone#[:-1] # Truncate zone letter to get region name
         print(red(instance_region))
         # TODO modify _get_ec2_conn to take the url parameters
         #ec2_conn = _get_ec2_conn(instance_region)
-        ec2_conn = boto.connect_euca()
+        region = RegionInfo(name="eucalyptus", endpoint="172.17.31.11")
+        ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region)
         vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
@@ -719,8 +725,10 @@ def rebundle(reboot_if_needed=False):
             print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
-                vol = ec2_conn.create_volume(vol_size, availability_zone)
-                vol2 = ec2_conn.create_volume(vol_size, availability_zone)
+                #vol = ec2_conn.create_volume(vol_size, availability_zone)
+                vol = ec2_conn.create_volume(vol_size, instance_region)
+                #vol2 = ec2_conn.create_volume(vol_size, availability_zone)
+                vol2 = ec2_conn.create_volume(vol_size,instance_region)
                 # TODO: wait until it becomes 'available'
                 print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
             except EC2ResponseError, e:
@@ -967,6 +975,7 @@ def _clean():
             sudo('rm -f %s' % cf)
 
 def _get_ec2_conn(instance_region='us-east-1'):
+
     # TODO fix AWS specific region information
     regions = boto.ec2.regions()  
     print "Found regions: %s; trying to match to instance region: %s" % (regions, instance_region)
