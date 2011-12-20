@@ -706,9 +706,9 @@ def rebundle(reboot_if_needed=False):
         print(red(instance_region))
         # TODO modify _get_ec2_conn to take the url parameters
         #ec2_conn = _get_ec2_conn(instance_region)
-        region = RegionInfo(name="eucalyptus", endpoint="172.17.31.11")
-        ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region)
-        vol_size = 15 # This will be the size (in GB) of the root partition of the new image
+        region = RegionInfo(name="fog", endpoint="172.17.31.11:8773")
+        ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region, path="/services/Eucalyptus")
+        vol_size = 1 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
@@ -724,11 +724,12 @@ def rebundle(reboot_if_needed=False):
         if instance_id and availability_zone and kernel_id:
             print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
+                # instance region and availability zone is the same for eucalyptus
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
-                #vol = ec2_conn.create_volume(vol_size, availability_zone)
-                vol = ec2_conn.create_volume(vol_size, instance_region)
-                #vol2 = ec2_conn.create_volume(vol_size, availability_zone)
-                vol2 = ec2_conn.create_volume(vol_size,instance_region)
+                vol = ec2_conn.create_volume(vol_size, availability_zone)
+                #vol = ec2_conn.create_volume(vol_size, instance_region)
+                vol2 = ec2_conn.create_volume(vol_size, availability_zone)
+                #vol2 = ec2_conn.create_volume(vol_size,instance_region)
                 # TODO: wait until it becomes 'available'
                 print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
             except EC2ResponseError, e:
