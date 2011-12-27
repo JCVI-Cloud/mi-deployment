@@ -232,14 +232,14 @@ def configure_MI(galaxy=False, do_rebundle=False):
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-#    _add_hostname_to_hosts()
-#    _amazon_ec2_environment(galaxy)
-#    _update_system()
-#    _required_packages()
-#    _setup_users()
-#    _required_programs()
-#    _required_libraries()
-#    _configure_environment() 
+    _add_hostname_to_hosts()
+    _amazon_ec2_environment(galaxy)
+    _update_system()
+    _required_packages()
+    _setup_users()
+    _required_programs()
+    _required_libraries()
+    _configure_environment() 
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
     if do_rebundle == 'do_rebundle':
@@ -706,9 +706,11 @@ def rebundle(reboot_if_needed=False):
         print(red(instance_region))
         # TODO modify _get_ec2_conn to take the url parameters
         #ec2_conn = _get_ec2_conn(instance_region)
-        region = RegionInfo(name="fog", endpoint="172.17.31.11:8773")
-        ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region, path="/services/Eucalyptus")
-        vol_size = 1 # This will be the size (in GB) of the root partition of the new image
+        #region = RegionInfo(name="fog", endpoint="172.17.31.11:8773")
+        region = RegionInfo(name="Eucalyptus", endpoint="173.205.188.130:8773")
+        ec2_conn = boto.connect_ec2(host="173.205.188.130:8773", region=region, path="/services/Eucalyptus")
+        #ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region, path="/services/Eucalyptus")
+        vol_size = 3 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
@@ -735,6 +737,8 @@ def rebundle(reboot_if_needed=False):
             except EC2ResponseError, e:
                 print(red("Error creating volume: %s" % e))
                 return False
+
+            time.sleep(120)
             
             if vol:
                 try:
