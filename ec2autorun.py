@@ -12,7 +12,7 @@ Assumptions:
 import os, sys, yaml, urllib2, logging, hashlib, time, subprocess, random
 from urlparse import urlparse
 
-from boto.s3.connection import S3Connection
+from boto.s3.connection import S3Connection, OrdinaryCallingFormat, SubdomainCallingFormat
 from boto.s3.key import Key
 from boto.exception import S3ResponseError,BotoServerError
 logging.getLogger('boto').setLevel(logging.INFO) # Only log boto messages >=INFO
@@ -80,6 +80,9 @@ def _get_s3_conn(ud):
         host = url.hostname
         port = url.port
         path = url.path
+        calling_format=SubdomainCallingFormat()
+        if host.find('amazon') == -1:  # assume that non-amazon won't use <bucket>.<hostname> format
+            calling_format=OrdinaryCallingFormat()
         if url.scheme == 'https':
             is_secure = True
         else:
@@ -92,6 +95,7 @@ def _get_s3_conn(ud):
                 port = port,
                 host = host,
                 path = path,
+                calling_format = calling_format,
             )
             log.debug('Got boto S3 connection to %s' % ud['s3_url'])
         except Exception, e:
@@ -102,7 +106,6 @@ def _get_s3_conn(ud):
             log.debug('Got boto S3 connection.')
         except BotoServerError, e:
             log.error("Exception getting S3 connection: %s" % e)
-            raise e
     return s3_conn
 
 def _bucket_exists(s3_conn, bucket_name):
