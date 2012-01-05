@@ -33,7 +33,7 @@ from fabric.colors import red, green, yellow
 AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
-REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
+# REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 
 # EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
 # If you do not have the following two environment variables set (AWS_ACCESS_KEY_ID,
@@ -54,7 +54,7 @@ def _amazon_ec2_environment(galaxy=False):
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
-    env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu natty/"]
+    env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu lucid/"]
 
 
 # == Templates
@@ -408,15 +408,14 @@ def _install_nginx():
                     sudo("cd %s; stow nginx" % env.install_dir)
     
     nginx_conf_file = 'nginx.conf'
-    url = os.path.join(REPO_ROOT_URL, nginx_conf_file)
-    with cd(remote_conf_dir):
-        sudo("wget --output-document=%s/%s %s" % (remote_conf_dir, nginx_conf_file, url))
+    remote_nginx_conf_path = os.path.join(remote_conf_dir,nginx_conf_file)
+    _put_as_user(nginx_conf_file,remote_nginx_conf_path, user='root')
     
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
-    url = os.path.join(REPO_ROOT_URL, nginx_errdoc_file)
     remote_errdoc_dir = os.path.join(install_dir, "html")
+    remote_errdoc_path = os.path.join(remote_errdoc_dir,nginx_errdoc_file)
+    _put_as_user(nginx_errdoc_file,remote_errdoc_path, user='root')
     with cd(remote_errdoc_dir):
-        sudo("wget --output-document=%s/%s %s" % (remote_errdoc_dir, nginx_errdoc_file, url))
         sudo('tar xvzf %s' % nginx_errdoc_file)
     
     cloudman_default_dir = "/opt/galaxy/sbin"
@@ -485,26 +484,29 @@ def _install_proftpd():
         with cd(work_dir):
             run("wget %s" % url)
             with settings(hide('stdout')):
-                run("tar xvzf %s" % os.path.split(url)[1])
+                run("tar xzf %s" % os.path.split(url)[1])
             with cd("proftpd-%s" % version):
                 run("CFLAGS='-I/usr/include/postgresql' ./configure --prefix=%s --disable-auth-file --disable-ncurses --disable-ident --disable-shadow --enable-openssl --with-modules=mod_sql:mod_sql_postgres:mod_sql_passwd --with-libraries=/usr/lib/postgres/%s/lib" % (install_dir, postgres_ver))
-                sudo("make")
+                run("make")
                 sudo("make install")
                 sudo("make clean")
-                # Get init.d startup script
-                initd_script = 'proftpd'
-                initd_url = os.path.join(REPO_ROOT_URL, 'conf_files', initd_script)
-                sudo("wget --output-document=%s %s" % (os.path.join('/etc/init.d', initd_script), initd_url))
-                sudo("chmod 755 %s" % os.path.join('/etc/init.d', initd_script))
-                # Get configuration files
-                proftpd_conf_file = 'proftpd.conf'
-                welcome_msg_file = 'welcome_msg.txt'
-                conf_url = os.path.join(REPO_ROOT_URL, 'conf_files', proftpd_conf_file)
-                welcome_url = os.path.join(REPO_ROOT_URL, 'conf_files', welcome_msg_file)
-                sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, proftpd_conf_file), conf_url))
-                sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, welcome_msg_file), welcome_url))
-                sudo("cd %s; stow proftpd" % env.install_dir)
-                print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
+    # Get init.d startup script
+    proftp_initd_script = 'proftpd'
+    local_proftp_initd_path = os.path.join('conf_files',proftp_initd_script)
+    remote_proftpd_initd_path = os.path.join('/etc/init.d',proftp_initd_script)
+    _put_as_user(local_proftp_initd_path,remote_proftpd_initd_path, user='root')
+    sudo('chmod 755 %s' % remote_proftpd_initd_path)
+    # Get configuration files
+    proftpd_conf_file = 'proftpd.conf'
+    local_conf_path = os.path.join('conf_files',proftpd_conf_file)
+    remote_conf_path = os.path.join(remote_conf_dir,proftpd_conf_file) 
+    welcome_msg_file = 'welcome_msg.txt'
+    local_welcome_msg_path = os.path.join('conf_files',welcome_msg_file)
+    remote_welcome_msg_path = os.path.join(remote_conf_dir, welcome_msg_file)
+    _put_as_user(local_conf_path,remote_conf_path, user='root')
+    _put_as_user(local_welcome_msg_path,remote_welcome_msg_path, user='root')
+    sudo("cd %s; stow proftpd" % env.install_dir)
+    print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
 
 @_if_not_installed("samtools")
 def _install_samtools():
@@ -520,7 +522,7 @@ def _install_samtools():
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
-            run("tar -xjvpf %s" % (os.path.split(url)[-1]))
+            run("tar -xjpf %s" % (os.path.split(url)[-1]))
             with cd("samtools-%s%s" % (version, vext)):
                 run("sed -i.bak -r -e 's/-lcurses/-lncurses/g' Makefile")
                 run("make")
@@ -573,8 +575,9 @@ def _configure_environment():
         _configure_xvfb()
 
 def _configure_ec2_autorun():
-    url = os.path.join(REPO_ROOT_URL, "ec2autorun.py")
-    sudo("wget --output-document=%s/ec2autorun.py %s" % (env.install_dir, url))
+    ec2_autorun_file = "ec2autorun.py"
+    remote_ec2_autorun_path = os.path.join(env.install_dir,ec2_autorun_file)
+    _put_as_user(ec2_autorun_file,remote_ec2_autorun_path, user='root')
     # Create upstart configuration file for boot-time script
     cloudman_boot_file = 'cloudman.conf'
     with open( cloudman_boot_file, 'w' ) as f:
@@ -675,6 +678,7 @@ def _configure_xvfb():
     sudo("mkdir /var/lib/xvfb; chown root:root /var/lib/xvfb; chmod 0755 /var/lib/xvfb")
     print(green("----- configured xvfb -----"))
 
+
 # == Machine image rebundling code
 def rebundle(reboot_if_needed=False):
     """
@@ -734,14 +738,10 @@ def rebundle(reboot_if_needed=False):
                         print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
                         return False
                     # Move the file system onto the new volume (with a help of a script)
-                    url = os.path.join(REPO_ROOT_URL, "instance-to-ebs-ami.sh")
-                    # with contextlib.nested(cd('/tmp'), settings(hide('stdout', 'stderr'))):
-                    with cd('/tmp'):
-                        if exists('/tmp/'+os.path.split(url)[1]):
-                            sudo('rm /tmp/'+os.path.split(url)[1])
-                        sudo('wget %s' % url)
-                        sudo('chmod u+x /tmp/%s' % os.path.split(url)[1])
-                        sudo('./%s' % os.path.split(url)[1])
+                    ebs_maker_script = "instance-to-ebs-ami.sh"
+                    remote_path = os.path.join('/tmp',ebs_maker_script)
+                    _put_as_user(local_file,remote_path,mode=0755)
+                    sudo('%s' % remote_path)
                     # Detach the new volume
                     _detach(ec2_conn, instance_id, vol.id)
                     _detach(ec2_conn, instance_id, vol2.id)
@@ -987,6 +987,9 @@ def _check_fabric_version():
     if int(version.split(".")[0]) < 1:
         raise NotImplementedError("Please install Fabric version 1.0 or later.")
 
-def _put_as_user(local_file, remote_file, user, mode=None):
+def _put_as_user(local_file, remote_file, user='root', group=None, mode=None):
     put(local_file, remote_file, use_sudo=True, mode=mode)
-    sudo("chown %s:%s %s" % (user, user, remote_file))
+    if user:
+        if not group:
+            group = user
+        sudo("chown %s:%s %s" % (user, group, remote_file))
