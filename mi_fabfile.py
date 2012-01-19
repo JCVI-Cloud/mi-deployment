@@ -14,6 +14,7 @@ Options:
     rebundle => rebundle the machine image without doing any configuration
 """
 import os, os.path, time, contextlib, tempfile, yaml, boto
+import pdb
 import datetime as dt
 from contextlib import contextmanager
 #try:
@@ -707,18 +708,15 @@ def rebundle(reboot_if_needed=False):
         # TODO modify _get_ec2_conn to take the url parameters
         #ec2_conn = _get_ec2_conn(instance_region)
         #region = RegionInfo(name="fog", endpoint="172.17.31.11:8773")
-        region = RegionInfo(name="Eucalyptus", endpoint="173.205.188.130:8773")
-        ec2_conn = boto.connect_ec2(aws_access_key_id = 'WKy3rMzOWPouVOxK1p3Ar1C2uRBwa2FBXnCw', aws_secret_access_key=
-                                    'FLUOwRsrEBb7cBBDvrgfqdOA2JiYz4up9E0A', host="173.205.188.130:8773", region=region, path="/services/Eucalyptus")
-#        ec2_conn = EC2Connection(
-#                #aws_access_key_id=self.ec2_user_access_key,
-#                #aws_secret_access_key=self.ec2_user_secret_key,
-#                #is_secure=self.is_secure,
-#                region=region,
-#                #port=self.port,
-#                host="173.205.188.130:8773",
-#                path="/services/Eucalyptus",
-#                )
+        #region = RegionInfo(name="Eucalyptus", endpoint="172.17.31.11:8773")
+        region = RegionInfo(None, "eucalyptus", "172.17.31.11")
+        ec2_conn = boto.connect_ec2(aws_access_key_id = "WKy3rMzOWPouVOxK1p3Ar1C2uRBwa2FBXnCw", aws_secret_access_key=
+                                    "FLUOwRsrEBb7cBBDvrgfqdOA2JiYz4up9E0A",
+                                    port=8773,
+                                    region=region, path="/services/Eucalyptus",
+                                    is_secure=False)
+
+
         #ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region, path="/services/Eucalyptus")
         vol_size = 3 # This will be the size (in GB) of the root partition of the new image
         
@@ -749,7 +747,7 @@ def rebundle(reboot_if_needed=False):
                 print(red("Error creating volume: %s" % e))
                 return False
 
-            sleep(120)
+            time.sleep(120)
             
             if vol:
                 try:
