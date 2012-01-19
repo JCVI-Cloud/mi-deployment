@@ -232,14 +232,14 @@ def configure_MI(galaxy=False, do_rebundle=False):
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-    _add_hostname_to_hosts()
-    _amazon_ec2_environment(galaxy)
-    _update_system()
-    _required_packages()
-    _setup_users()
-    _required_programs()
-    _required_libraries()
-    _configure_environment() 
+#    _add_hostname_to_hosts()
+#    _amazon_ec2_environment(galaxy)
+#    _update_system()
+#    _required_packages()
+#    _setup_users()
+#    _required_programs()
+#    _required_libraries()
+#    _configure_environment() 
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
     if do_rebundle == 'do_rebundle':
@@ -708,7 +708,17 @@ def rebundle(reboot_if_needed=False):
         #ec2_conn = _get_ec2_conn(instance_region)
         #region = RegionInfo(name="fog", endpoint="172.17.31.11:8773")
         region = RegionInfo(name="Eucalyptus", endpoint="173.205.188.130:8773")
-        ec2_conn = boto.connect_ec2(host="173.205.188.130:8773", region=region, path="/services/Eucalyptus")
+        ec2_conn = boto.connect_ec2(aws_access_key_id = 'WKy3rMzOWPouVOxK1p3Ar1C2uRBwa2FBXnCw', aws_secret_access_key=
+                                    'FLUOwRsrEBb7cBBDvrgfqdOA2JiYz4up9E0A', host="173.205.188.130:8773", region=region, path="/services/Eucalyptus")
+#        ec2_conn = EC2Connection(
+#                #aws_access_key_id=self.ec2_user_access_key,
+#                #aws_secret_access_key=self.ec2_user_secret_key,
+#                #is_secure=self.is_secure,
+#                region=region,
+#                #port=self.port,
+#                host="173.205.188.130:8773",
+#                path="/services/Eucalyptus",
+#                )
         #ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region, path="/services/Eucalyptus")
         vol_size = 3 # This will be the size (in GB) of the root partition of the new image
         
@@ -724,8 +734,9 @@ def rebundle(reboot_if_needed=False):
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
         print(red(kernel_id))                                                                                                                                    
         if instance_id and availability_zone and kernel_id:
-            print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
+            #print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
+                print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
                 # instance region and availability zone is the same for eucalyptus
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
                 vol = ec2_conn.create_volume(vol_size, availability_zone)
@@ -738,7 +749,7 @@ def rebundle(reboot_if_needed=False):
                 print(red("Error creating volume: %s" % e))
                 return False
 
-            time.sleep(120)
+            sleep(120)
             
             if vol:
                 try:
