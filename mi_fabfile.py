@@ -722,6 +722,7 @@ def rebundle(reboot_if_needed=False):
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
+        print(red(instance_id))                                                                                                                                    
         
         # Handle reboot if required
         if not _reboot(instance_id, reboot_if_needed):
@@ -738,6 +739,8 @@ def rebundle(reboot_if_needed=False):
                 # instance region and availability zone is the same for eucalyptus
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
                 vol = ec2_conn.create_volume(vol_size, availability_zone)
+                print(red("sleeping between vol creation"))     
+                time.sleep(120)
                 #vol = ec2_conn.create_volume(vol_size, instance_region)
                 vol2 = ec2_conn.create_volume(vol_size, availability_zone)
                 #vol2 = ec2_conn.create_volume(vol_size,instance_region)
@@ -747,6 +750,7 @@ def rebundle(reboot_if_needed=False):
                 print(red("Error creating volume: %s" % e))
                 return False
 
+            print(red("sleeping after vol creation"))     
             time.sleep(120)
             
             if vol:
@@ -755,10 +759,12 @@ def rebundle(reboot_if_needed=False):
                     dev_id = '/dev/sdh'
                     if not _attach(ec2_conn, instance_id, vol.id, dev_id):
                         print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
+                        vol = ec2_conn.delete_volume(vol.id)
                         return False
                     dev_id = '/dev/sdj'
                     if not _attach(ec2_conn, instance_id, vol2.id, dev_id):
                         print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
+                        vol = ec2_conn.delete_volume(vol2.id)
                         return False
                     # Move the file system onto the new volume (with a help of a script)
                     url = os.path.join(REPO_ROOT_URL, "instance-to-ebs-ami.sh")
