@@ -46,7 +46,7 @@ done
 # > $IMAGE_MOUNT_POINT/root/.ssh/authorized_keys
 # > $IMAGE_MOUNT_POINT/home/ubuntu/.ssh/authorized_keys
 
-echo "Doing the tar trickery"
+echo "Starting the tar trickery (`date`)"
 cd $IMAGE_MOUNT_POINT
 tar -cpSf - -C ./ . | tar xf - -C $EBS_MOUNT_POINT
 #NOTE, You could rsync / directly to EBS_MOUNT_POINT, but this tar trickery saves some space in the snapshot

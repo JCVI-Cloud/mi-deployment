@@ -13,7 +13,7 @@ Options:
                     rebundle upon completion of configuration
     rebundle => rebundle the machine image without doing any configuration
 """
-import os, os.path, time, contextlib, tempfile, yaml
+import os, os.path, time, contextlib, tempfile, yaml, sys
 import datetime as dt
 from contextlib import contextmanager
 try:
@@ -249,9 +249,10 @@ def configure_MI(galaxy=False, do_rebundle=False):
 def _update_system():
     """Runs standard system update"""
     _setup_sources()
-    sudo('apt-get -y update')
-    run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y --force-yes') # Ensure a completely noninteractive upgrade
-    sudo('apt-get -y dist-upgrade')
+    with settings(warn_only=True): # Some custom CBL sources don't always work so avoid a crash in that case
+        sudo('apt-get -y update')
+        run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y --force-yes') # Ensure a completely noninteractive upgrade
+        sudo('apt-get -y dist-upgrade')
 
 def _setup_sources():
     """Add sources for retrieving library packages."""
@@ -268,28 +269,38 @@ def _required_packages():
     # default packages required by CloudMan
     packages = ['stow',
                 'xfsprogs',
+                'build-essential',
                 'unzip',
                 'gcc', # Required to compile nginx
                 'g++',
+                'libboost1.40-all-dev',
+                'cmake',
                 'nfs-kernel-server',
                 'zlib1g-dev',
                 'libssl-dev',
                 'libreadline5-dev',
+                'mercurial',
+                'subversion',
+                'postgresql',
+                'gfortran',
+                'python-rpy',
+                'openjdk-6-jdk',
+                'libopenmpi-dev',
+                'libopenmpi1.3',
+                'openmpi-bin',
+                'openmpi-common',
+                'libpng12-0', # Required by WRF
+                'libpng12-dev', # Required by WRF
+                'libjasper-dev', # Required by WRF
+                'libjasper-runtime', # Required by WRF
+                'libitpp-dev', # Required by GraphLab
+                'libitpp6-dbg', # Required by GraphLab
                 'libpcre3-dev', # Required to compile nginx
                 'git-core', # Required to install boto from source
                 'rabbitmq-server'] # Required by CloudMan for communication between instances
     # Additional packages required for Galaxy images
     if env.galaxy_too:
-        packages += ['mercurial', 
-                    'subversion',
-                    'postgresql',
-                    'gfortran',
-                    'python-rpy',
-                    'openjdk-6-jdk',
-                    'libopenmpi-dev',
-                    'libopenmpi1.3',
-                    'openmpi-bin',
-                    'axel', # Parallel file download (used by Galaxy ObjectStore)
+        packages += ['axel', # Parallel file download (used by the Galaxy ObjectStore)
                     'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
                     'r-cran-qvalue', # required by Compute q-values
                     'r-bioc-hilbertvis', # required by HVIS
@@ -618,6 +629,7 @@ def _configure_nfs():
         if not contains(nfs_file, '/mnt/galaxyTools'):
             append(nfs_file, '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)', use_sudo=True)
     print(green("NFS /etc/exports dir configured"))
+
 def _configure_bash():
     """Some convenience/preference settings"""
     append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
@@ -681,10 +693,12 @@ def rebundle(reboot_if_needed=False):
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         instance_region = availability_zone[:-1] # Truncate zone letter to get region name
         ec2_conn = _get_ec2_conn(instance_region)
-        vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
+        
+        # Get the size (in GB) of the root partition for the new image
+        vol_size = _get_root_vol_size(ec2_conn, instance_id)
         
         # Handle reboot if required
         if not _reboot(instance_id, reboot_if_needed):
@@ -693,7 +707,7 @@ def rebundle(reboot_if_needed=False):
         _clean() # Clean up the environment before rebundling
         image_id = None
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
-        if instance_id and availability_zone and kernel_id:
+        if ec2_conn and instance_id and availability_zone and kernel_id:
             print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
@@ -944,8 +958,34 @@ def _clean():
         if exists(cf):
             sudo('rm -f %s' % cf)
 
+def _get_root_vol_size(ec2_conn, instance_id):
+    print("Trying to discover the size of the current root volume")
+    try:
+        f = {'attachment.instance-id': instance_id}
+        volumes = ec2_conn.get_all_volumes(filters=f)
+    except EC2ResponseError, e:
+        print( "Error checking for attached volumes: %s" % e )
+    size = 20 # The default size for the root partition
+    if len(volumes) == 1:
+        size = volumes[0].size
+    else:
+        print("Found more than 1 attached volume: %s" % volumes)
+        size = raw_input("Enter the desired root volume size (in GB, just the whole number): ")
+        if not isinstance(size, int):
+            print(red("Wrong value provided (%s); using the default of 20GB." % size))
+            size = 20
+    return size
+
 def _get_ec2_conn(instance_region='us-east-1'):
-    regions = boto.ec2.regions()
+    try:
+        regions = boto.ec2.regions()
+    except boto.exception.NoAuthHandlerFound, e:
+        print(red("Credentials issue? %s\n\nTry setting the following in ~/.boto:\n \
+            [Credentials] \
+            aws_access_key_id = <your access key> \
+            aws_secret_access_key = <your secret key> \
+            " % e))
+        sys.exit(1)
     print "Found regions: %s; trying to match to instance region: %s" % (regions, instance_region)
     region = None
     for r in regions:
