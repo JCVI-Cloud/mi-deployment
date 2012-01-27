@@ -11,7 +11,7 @@ Options:
     configre_MI:galaxy => configure machine image for CloudMan with Galaxy
     configure_MI:galaxy,do_rebundle => automatically initiate machine image
                     rebundle upon completion of configuration
-    configure_MI:euca => deploy in eucalyptus, the default is Amazon ec2
+    configure_MI:euc=True => deploy in eucalyptus, the default is Amazon ec2
     rebundle => rebundle the machine image without doing any configuration
 """
 import os, os.path, time, contextlib, tempfile, yaml, boto
@@ -231,7 +231,7 @@ def configure_MI(galaxy=False, do_rebundle=False, euca=False):
     http://usegalaxy.org/cloud
     http://userwww.service.emory.edu/~eafgan/projects.html
     """
-    _check_fabric_version()
+#    _check_fabric_version()
 #    time_start = dt.datetime.utcnow()
 #    print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
 #    _add_hostname_to_hosts()
@@ -742,40 +742,41 @@ def rebundle(reboot_if_needed=False, euca=False):
                 print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
                 # instance region and availability zone is the same for eucalyptus
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
-                vol = ec2_conn.create_volume(vol_size, availability_zone)
+           #     vol = ec2_conn.create_volume(vol_size, availability_zone)
                 #vol = ec2_conn.create_volume(vol_size, instance_region)
-                vol2 = ec2_conn.create_volume(vol_size, availability_zone)
+           #     vol2 = ec2_conn.create_volume(vol_size, availability_zone)
                 #vol2 = ec2_conn.create_volume(vol_size,instance_region)
                 # TODO: wait until it becomes 'available'
-                print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
+           #     print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
             except EC2ResponseError, e:
                 print(red("Error creating volume: %s" % e))
                 return False
 
             
-            if vol:
+            #if vol:
+            if 1:
                 try:
                     # Attach newly created volumes to the instance
                     #dev_id = '/dev/sdh'
-                    dev_id = '/dev/vda'
-                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
-                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
-                        vol = ec2_conn.delete_volume(vol.id)
-                        return False
-
-                    #dev_id = '/dev/sdj'
-                    dev_id = '/dev/vdb'
-                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
-                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
-                        vol = ec2_conn.delete_volume(vol2.id)
-                        return False
+#                    dev_id = '/dev/vda'
+#                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
+#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
+#                        vol = ec2_conn.delete_volume(vol.id)
+#                        return False
+#
+#                    #dev_id = '/dev/sdj'
+#                    dev_id = '/dev/vdb'
+#                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
+#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
+#                        vol = ec2_conn.delete_volume(vol2.id)
+#                        return False
 
                     if euca:
 
-                        sudo('mkfs.ext3 /dev/vda')
-                        sudo('mkdir -m 000 -p /mnt/ebs')
-                        sudo('mount /dev/vda /mnt/ebs')
-                        sudo('euca-bundle-vol --user 59242150790379988457748463773923344394 -s 5 -d /mnt/ebs -p cloudman --exclude /root/.bash_history,/home/.bash_history,/etc/ssh/ssh_host_*,/etc/ssh/modul,/etc/udev/rules.d/*persistent-net.rules,/var/lib/ec2,/mnt,/proc,/tmp,/root/.ssh,/home/ubuntu/.ssh,/var/lib/rabbitmq/mnesia')
+               #         sudo('mkfs.ext3 /dev/vda')
+               #         sudo('mkdir -m 000 -p /mnt/ebs')
+               #         sudo('mount /dev/vda /mnt/ebs')
+                        sudo('euca-bundle-vol -c /home/agbiotec/.eucalyptus-JCVI-admin/euca2-admin-9bc9c71a-cert.pem -k FLUOwRsrEBb7cBBDvrgfqdOA2JiYz4up9E0A --user 59242150790379988457748463773923344394 -s 5 -d /mnt/ebs -p cloudman --exclude /root,/etc/ssh,/etc/udev,/var/lib/ec2,/mnt,/proc,/tmp,/var/lib/rabbitmq/mnesia')
                         sudo('euca-upload-bundle -m /mnt/ebs/cloudman.manifest.xml -b cloudman')
                         sudo('euca-register cloudman/cloudman.manifest.xml')
                         _detach(ec2_conn, instance_id, vol.id)
@@ -916,6 +917,8 @@ def _reboot(instance_id, force=False):
     return True # Default to OK
 
 def _attach( ec2_conn, instance_id, volume_id, device, euca ):
+
+    print(green(euca))
     """
     Attach EBS volume to the given device (using boto).
     Try it for some time.
