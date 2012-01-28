@@ -231,19 +231,19 @@ def configure_MI(galaxy=False, do_rebundle=False, euca=False):
     http://usegalaxy.org/cloud
     http://userwww.service.emory.edu/~eafgan/projects.html
     """
-#    _check_fabric_version()
-#    time_start = dt.datetime.utcnow()
-#    print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-#    _add_hostname_to_hosts()
-#    _amazon_ec2_environment(galaxy)
-#    _update_system()
-#    _required_packages()
-#    _setup_users()
-#    _required_programs()
-#    _required_libraries()
-#    _configure_environment() 
-#    time_end = dt.datetime.utcnow()
-#    print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
+    _check_fabric_version()
+    time_start = dt.datetime.utcnow()
+    print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
+    _add_hostname_to_hosts()
+    _amazon_ec2_environment(galaxy)
+    _update_system()
+    _required_packages()
+    _setup_users()
+    _required_programs()
+    _required_libraries()
+    _configure_environment() 
+    time_end = dt.datetime.utcnow()
+    print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
     if do_rebundle == 'do_rebundle':
         do_rebundle = True
         reboot_if_needed = True
@@ -753,32 +753,35 @@ def rebundle(reboot_if_needed=False, euca=False):
                 return False
 
             
-            #if vol:
-            if 1:
+            if vol:
+            #if 1:
                 try:
                     # Attach newly created volumes to the instance
                     #dev_id = '/dev/sdh'
-#                    dev_id = '/dev/vda'
-#                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
-#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
-#                        vol = ec2_conn.delete_volume(vol.id)
-#                        return False
-#
-#                    #dev_id = '/dev/sdj'
-#                    dev_id = '/dev/vdb'
-#                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
-#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
-#                        vol = ec2_conn.delete_volume(vol2.id)
-#                        return False
+                    dev_id = '/dev/vda'
+                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
+                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
+                        vol = ec2_conn.delete_volume(vol.id)
+                        return False
+
+                    #dev_id = '/dev/sdj'
+                    dev_id = '/dev/vdb'
+                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
+                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
+                        vol = ec2_conn.delete_volume(vol2.id)
+                        return False
 
                     if euca:
 
-               #         sudo('mkfs.ext3 /dev/vda')
-               #         sudo('mkdir -m 000 -p /mnt/ebs')
-               #         sudo('mount /dev/vda /mnt/ebs')
-                        sudo('euca-bundle-vol -c /home/agbiotec/.eucalyptus-JCVI-admin/euca2-admin-9bc9c71a-cert.pem -k FLUOwRsrEBb7cBBDvrgfqdOA2JiYz4up9E0A --user 59242150790379988457748463773923344394 -s 5 -d /mnt/ebs -p cloudman --exclude /root,/etc/ssh,/etc/udev,/var/lib/ec2,/mnt,/proc,/tmp,/var/lib/rabbitmq/mnesia')
-                        sudo('euca-upload-bundle -m /mnt/ebs/cloudman.manifest.xml -b cloudman')
-                        sudo('euca-register cloudman/cloudman.manifest.xml')
+                        sudo('mkfs.ext3 /dev/vda')
+                        sudo('mkdir -m 000 -p /mnt/ebs')
+                        sudo('mount /dev/vda /mnt/ebs')
+                        put('euca2-*-x509.zip','/tmp')
+                        run('unzip /tmp/euca2-*-x509.zip')
+                        sudo('sudo euca-bundle-vol --ec2cert /tmp/cloud-cert.pem -c /tmp/euca2-admin-9bc9c71a-cert.pem -k /tmp/euca2-admin-9bc9c71a-pk.pem -u 59242150790379988457748463773923344394 -s 5000 -d /mnt/ebs -p  cloudman -e /root,/etc/ssh,/etc/udev,/var/lib/ec2,/mnt,/proc,/tmp,/var/lib/rabbitmq/mnesia')
+                        #run('euca-upload-bundle -m /mnt/ebs/cloudman.manifest.xml -b cloudman')
+                        #run('euca-register cloudman/cloudman.manifest.xml')
+                        run('uec-publish-image -l all -t image -k eki-650A174A -r none x86_64 /mnt/ebs/cloudman.img cloudman')
                         _detach(ec2_conn, instance_id, vol.id)
                         _detach(ec2_conn, instance_id, vol2.id)
 
