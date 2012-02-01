@@ -241,7 +241,7 @@ def configure_MI(galaxy=False, do_rebundle=False):
     else:
         do_rebundle = False
         reboot_if_needed = False
-    if do_rebundle or confirm("Would you like to bundle this instance into a new machine image (note that this applies and was testtg only on EC2 instances)?"):
+    if do_rebundle or confirm("Would you like to bundle this instance into a new machine image (note that budling applies and was tested only on EC2 instances)?"):
         rebundle(reboot_if_needed)
 
 # == system
@@ -289,6 +289,8 @@ def _required_packages():
                 'libopenmpi1.3',
                 'openmpi-bin',
                 'openmpi-common',
+                'netcdf-bin', # Required by WRF
+                'netcdf-dbg', # Required by WRF
                 'libpng12-0', # Required by WRF
                 'libpng12-dev', # Required by WRF
                 'libjasper-dev', # Required by WRF
@@ -672,6 +674,48 @@ def _configure_xvfb():
     print(green("----- configured xvfb -----"))
 
 # == Machine image rebundling code
+
+def rebundle2(reboot_if_needed=False):
+    _check_fabric_version()
+    time_start = dt.datetime.utcnow()
+    print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
+    _amazon_ec2_environment()
+    instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
+    
+    # Handle reboot if required
+    if not _reboot(instance_id, reboot_if_needed):
+        return False # Indicates that rebundling was not completed and should be restarted
+    
+    if boto:
+        _clean() # Clean up the environment before rebundling
+        # Select appropriate region
+        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
+        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
+        ec2_conn = _get_ec2_conn(instance_region)
+        try:
+            name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
+            image_id = ec2_conn.create_image(instance_id, name=name, description=AMI_DESCRIPTION)
+            
+            print(green("--------------------------"))
+            print(green("Create a new machine image. Image ID (AMI): '%s'" % (image_id)))
+            print(yellow("Before this image can be used, the underlying snapshot still needs to be completed."))
+            print(green("--------------------------"))
+            answer = confirm("Would you like to make this machine image public?", default=False)
+            if image_id and answer:
+                ec2_conn.modify_image_attribute(image_id, attribute='launchPermission', operation='add', groups=['all'])
+        except EC2ResponseError, e:
+            print(red("Error creating image: %s" % e))
+            return False
+    else:
+        print(red("Python boto library not available. Aborting."))
+        return False
+    time_end = dt.datetime.utcnow()
+    print "Duration of instance rebundling: %s" % str(time_end-time_start)
+    if image_id is not None:
+        return True
+    else:
+        return False
+
 def rebundle(reboot_if_needed=False):
     """
     Rebundles the EC2 instance that is passed as the -H parameter
@@ -774,7 +818,8 @@ def rebundle(reboot_if_needed=False):
                     block_map[ephemeral0_device_name] = ephemeral0
                     block_map[ephemeral1_device_name] = ephemeral1
                     name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
-                    image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
+                    image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch,
+                        kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
                     if answer:
                         ec2_conn.delete_volume(vol.id)
@@ -959,21 +1004,22 @@ def _clean():
             sudo('rm -f %s' % cf)
 
 def _get_root_vol_size(ec2_conn, instance_id):
-    print("Trying to discover the size of the current root volume")
+    print(yellow("Trying to discover the size of the current root volume"))
     try:
         f = {'attachment.instance-id': instance_id}
         volumes = ec2_conn.get_all_volumes(filters=f)
     except EC2ResponseError, e:
-        print( "Error checking for attached volumes: %s" % e )
+        print(red("Error checking for attached volumes: {0}".format(e)))
     size = 20 # The default size for the root partition
     if len(volumes) == 1:
         size = volumes[0].size
     else:
-        print("Found more than 1 attached volume: %s" % volumes)
+        print(red("Found more than 1 attached volume: {0}".format(volumes)))
         size = raw_input("Enter the desired root volume size (in GB, just the whole number): ")
         if not isinstance(size, int):
-            print(red("Wrong value provided (%s); using the default of 20GB." % size))
+            print(red("Wrong value provided ({0}); using the default of 20GB.".format(size)))
             size = 20
+    print(yellow("Set the size of the new root volume to {0}GB".format(size)))
     return size
 
 def _get_ec2_conn(instance_region='us-east-1'):
