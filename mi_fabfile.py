@@ -231,17 +231,21 @@ def configure_MI(galaxy=False, do_rebundle=False, euca=False):
     http://usegalaxy.org/cloud
     http://userwww.service.emory.edu/~eafgan/projects.html
     """
+
+    if euca == 'euca':
+        euca = True
+
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-    _add_hostname_to_hosts()
-    _amazon_ec2_environment(galaxy)
-    _update_system()
-    _required_packages()
-    _setup_users()
-    _required_programs()
-    _required_libraries()
-    _configure_environment() 
+#    _add_hostname_to_hosts()
+#    _amazon_ec2_environment(galaxy)
+#    _update_system()
+#    _required_packages()
+#    _setup_users()
+#    _required_programs()
+#    _required_libraries(euca)
+#    _configure_environment() 
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
     if do_rebundle == 'do_rebundle':
@@ -250,8 +254,6 @@ def configure_MI(galaxy=False, do_rebundle=False, euca=False):
     else:
         do_rebundle = False
         reboot_if_needed = False
-    if euca == 'euca':
-        euca = True
     if do_rebundle or confirm("Would you like to bundle this instance into a new machine image (note that this applies and was testtg only on EC2 instances)?"):
         rebundle(reboot_if_needed,euca)
 
@@ -552,14 +554,18 @@ def _install_r_packages():
 
 # == libraries
  
-def _required_libraries():
+def _required_libraries(euca=False):
     """Install pyhton libraries"""
+
     # Libraries to be be installed using easy_install
-    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob']
+    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob', 'boto']
     for library in libraries:
         sudo("pip install %s" % library)
     print(green("----- Required python libraries installed -----"))
-    _install_boto() # or use packaged version above as part of easy_install
+    #_install_boto() # or use packaged version above as part of easy_install
+
+    #euca-tools need boto version 1.9
+    sudo('pip install -UIv http://pypi.python.org/packages/source/b/boto/boto-1.9b.tar.gz')
 
 # @_if_not_installed # FIXME: check if boto is installed or just enable installation of an updated version
 def _install_boto():
@@ -688,7 +694,7 @@ def _configure_xvfb():
 
 # == Machine image rebundling code
 def rebundle(reboot_if_needed=False, euca=False):
-    """
+    """f
     Rebundles the EC2 instance that is passed as the -H parameter
     This script handles all aspects of the rebundling process and is (almost) fully automated.
     Two things should be edited and provided before invoking it: AWS account information 
@@ -742,48 +748,52 @@ def rebundle(reboot_if_needed=False, euca=False):
                 print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
                 # instance region and availability zone is the same for eucalyptus
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
-           #     vol = ec2_conn.create_volume(vol_size, availability_zone)
+#                vol = ec2_conn.create_volume(vol_size, availability_zone)
                 #vol = ec2_conn.create_volume(vol_size, instance_region)
-           #     vol2 = ec2_conn.create_volume(vol_size, availability_zone)
+#                vol2 = ec2_conn.create_volume(vol_size, availability_zone)
                 #vol2 = ec2_conn.create_volume(vol_size,instance_region)
                 # TODO: wait until it becomes 'available'
-           #     print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
+#                print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
             except EC2ResponseError, e:
                 print(red("Error creating volume: %s" % e))
                 return False
 
             
-            if vol:
-            #if 1:
+#            if vol:
+            if 1:
                 try:
                     # Attach newly created volumes to the instance
                     #dev_id = '/dev/sdh'
-                    dev_id = '/dev/vda'
-                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
-                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
-                        vol = ec2_conn.delete_volume(vol.id)
-                        return False
-
-                    #dev_id = '/dev/sdj'
-                    dev_id = '/dev/vdb'
-                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
-                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
-                        vol = ec2_conn.delete_volume(vol2.id)
-                        return False
+#                    dev_id = '/dev/vda'
+#                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
+#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
+#                        vol = ec2_conn.delete_volume(vol.id)
+#                        return False
+#
+#                    #dev_id = '/dev/sdj'
+#                    dev_id = '/dev/vdb'
+#                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
+#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
+#                        vol = ec2_conn.delete_volume(vol2.id)
+#                        return False
 
                     if euca:
 
-                        sudo('mkfs.ext3 /dev/vda')
-                        sudo('mkdir -m 000 -p /mnt/ebs')
-                        sudo('mount /dev/vda /mnt/ebs')
-                        put('euca2-*-x509.zip','/tmp')
-                        run('unzip /tmp/euca2-*-x509.zip')
-                        sudo('sudo euca-bundle-vol --ec2cert /tmp/cloud-cert.pem -c /tmp/euca2-admin-9bc9c71a-cert.pem -k /tmp/euca2-admin-9bc9c71a-pk.pem -u 59242150790379988457748463773923344394 -s 5000 -d /mnt/ebs -p  cloudman -e /root,/etc/ssh,/etc/udev,/var/lib/ec2,/mnt,/proc,/tmp,/var/lib/rabbitmq/mnesia')
-                        #run('euca-upload-bundle -m /mnt/ebs/cloudman.manifest.xml -b cloudman')
-                        #run('euca-register cloudman/cloudman.manifest.xml')
-                        run('uec-publish-image -l all -t image -k eki-650A174A -r none x86_64 /mnt/ebs/cloudman.img cloudman')
-                        _detach(ec2_conn, instance_id, vol.id)
-                        _detach(ec2_conn, instance_id, vol2.id)
+#                        sudo('mkfs.ext3 /dev/vda')
+#                        sudo('mkdir -m 000 -p /mnt/ebs')
+#                        sudo('mount /dev/vda /mnt/ebs')
+#                        put('euca2-*-x509.zip','/tmp')
+#                        run('unzip /tmp/euca2-*-x509.zip -d /tmp')
+
+                        #is it probably in something is it doing in previous methods ?
+                        #problem here (22 login refused to instance if bundled via Fabric, no problem if bundled manually)
+
+                        sudo('sudo euca-bundle-vol --ec2cert /tmp/cloud-cert.pem -c /tmp/euca2-admin-9bc9c71a-cert.pem -k /tmp/euca2-admin-9bc9c71a-pk.pem -u 59242150790379988457748463773923344394 -s 5000 -d /mnt/ebs -p  cloudman -e /root,/etc/udev,/var/lib/ec2,/mnt,/proc,/tmp,/var/lib/rabbitmq/mnesia')
+                        run('euca-upload-bundle --config /tmp/eucarc -m /mnt/ebs/cloudman.manifest.xml -b cloudman')
+                        run('euca-register --config /tmp/eucarc cloudman/cloudman.manifest.xml')
+#                        run('uec-publish-image -l all -t image -k eki-650A174A -r none x86_64 /mnt/ebs/cloudman.img cloudman-uec')
+#                       _detach(ec2_conn, instance_id, vol.id)
+#                       _detach(ec2_conn, instance_id, vol2.id)
 
                     else:
                          # Move the file system onto the new volume (with a help of a script)
