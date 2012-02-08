@@ -590,6 +590,7 @@ def _configure_environment():
         _configure_xvfb()
 
 def _configure_ec2_autorun():
+    #TODO change this to be pulled from the local directory and not the repo
     url = os.path.join(REPO_ROOT_URL, "ec2autorun.py")
     sudo("wget --output-document=%s/ec2autorun.py %s" % (env.install_dir, url))
     # Create upstart configuration file for boot-time script
