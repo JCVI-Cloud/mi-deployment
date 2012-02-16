@@ -14,8 +14,7 @@ Options:
     configure_MI:euc=True => deploy in eucalyptus, the default is Amazon ec2
     rebundle => rebundle the machine image without doing any configuration
 """
-import os, os.path, time, contextlib, tempfile, yaml, boto
-import pdb
+import sys, os, os.path, time, contextlib, tempfile, yaml, boto
 import datetime as dt
 from contextlib import contextmanager
 #try:
@@ -40,7 +39,7 @@ from fabric.colors import red, green, yellow
 AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
-REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
+# REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 
 # EDIT FOLLOWING TWO LINES IF NEEDED/DESIRED:
 # If you do not have the following two environment variables set (AWS_ACCESS_KEY_ID,
@@ -61,8 +60,7 @@ def _amazon_ec2_environment(galaxy=False):
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
-    #env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu lucid/"]
-    env.std_sources = ["deb http://us.archive.ubuntu.com/ubuntu/ lucid main restricted"]
+    env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu lucid/", "deb http://us.archive.ubuntu.com/ubuntu/ lucid main restricted"]
 
 
 # == Templates
@@ -238,14 +236,14 @@ def configure_MI(galaxy=False, do_rebundle=False, euca=False):
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-#    _add_hostname_to_hosts()
-#    _amazon_ec2_environment(galaxy)
-#    _update_system()
-#    _required_packages()
-#    _setup_users()
-#    _required_programs()
-#    _required_libraries(euca)
-#    _configure_environment() 
+    _add_hostname_to_hosts()
+    _amazon_ec2_environment(galaxy)
+    _update_system()
+    _required_packages()
+    _setup_users()
+    _required_programs()
+    _required_libraries()
+    _configure_environment() 
     time_end = dt.datetime.utcnow()
     print(yellow("Duration of machine configuration: %s" % str(time_end-time_start)))
     if do_rebundle == 'do_rebundle':
@@ -421,15 +419,14 @@ def _install_nginx():
                     sudo("cd %s; stow nginx" % env.install_dir)
     
     nginx_conf_file = 'nginx.conf'
-    url = os.path.join(REPO_ROOT_URL, nginx_conf_file)
-    with cd(remote_conf_dir):
-        sudo("wget --output-document=%s/%s %s" % (remote_conf_dir, nginx_conf_file, url))
+    remote_nginx_conf_path = os.path.join(remote_conf_dir,nginx_conf_file)
+    _put_as_user(nginx_conf_file,remote_nginx_conf_path, user='root')
     
     nginx_errdoc_file = 'nginx_errdoc.tar.gz'
-    url = os.path.join(REPO_ROOT_URL, nginx_errdoc_file)
     remote_errdoc_dir = os.path.join(install_dir, "html")
+    remote_errdoc_path = os.path.join(remote_errdoc_dir,nginx_errdoc_file)
+    _put_as_user(nginx_errdoc_file,remote_errdoc_path, user='root')
     with cd(remote_errdoc_dir):
-        sudo("wget --output-document=%s/%s %s" % (remote_errdoc_dir, nginx_errdoc_file, url))
         sudo('tar xvzf %s' % nginx_errdoc_file)
     
     cloudman_default_dir = "/opt/galaxy/sbin"
@@ -498,26 +495,29 @@ def _install_proftpd():
         with cd(work_dir):
             run("wget %s" % url)
             with settings(hide('stdout')):
-                run("tar xvzf %s" % os.path.split(url)[1])
+                run("tar xzf %s" % os.path.split(url)[1])
             with cd("proftpd-%s" % version):
                 run("CFLAGS='-I/usr/include/postgresql' ./configure --prefix=%s --disable-auth-file --disable-ncurses --disable-ident --disable-shadow --enable-openssl --with-modules=mod_sql:mod_sql_postgres:mod_sql_passwd --with-libraries=/usr/lib/postgres/%s/lib" % (install_dir, postgres_ver))
-                sudo("make")
+                run("make")
                 sudo("make install")
                 sudo("make clean")
-                # Get init.d startup script
-                initd_script = 'proftpd'
-                initd_url = os.path.join(REPO_ROOT_URL, 'conf_files', initd_script)
-                sudo("wget --output-document=%s %s" % (os.path.join('/etc/init.d', initd_script), initd_url))
-                sudo("chmod 755 %s" % os.path.join('/etc/init.d', initd_script))
-                # Get configuration files
-                proftpd_conf_file = 'proftpd.conf'
-                welcome_msg_file = 'welcome_msg.txt'
-                conf_url = os.path.join(REPO_ROOT_URL, 'conf_files', proftpd_conf_file)
-                welcome_url = os.path.join(REPO_ROOT_URL, 'conf_files', welcome_msg_file)
-                sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, proftpd_conf_file), conf_url))
-                sudo("wget --output-document=%s %s" % (os.path.join(remote_conf_dir, welcome_msg_file), welcome_url))
-                sudo("cd %s; stow proftpd" % env.install_dir)
-                print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
+    # Get init.d startup script
+    proftp_initd_script = 'proftpd'
+    local_proftp_initd_path = os.path.join('conf_files',proftp_initd_script)
+    remote_proftpd_initd_path = os.path.join('/etc/init.d',proftp_initd_script)
+    _put_as_user(local_proftp_initd_path,remote_proftpd_initd_path, user='root')
+    sudo('chmod 755 %s' % remote_proftpd_initd_path)
+    # Get configuration files
+    proftpd_conf_file = 'proftpd.conf'
+    local_conf_path = os.path.join('conf_files',proftpd_conf_file)
+    remote_conf_path = os.path.join(remote_conf_dir,proftpd_conf_file) 
+    welcome_msg_file = 'welcome_msg.txt'
+    local_welcome_msg_path = os.path.join('conf_files',welcome_msg_file)
+    remote_welcome_msg_path = os.path.join(remote_conf_dir, welcome_msg_file)
+    _put_as_user(local_conf_path,remote_conf_path, user='root')
+    _put_as_user(local_welcome_msg_path,remote_welcome_msg_path, user='root')
+    sudo("cd %s; stow proftpd" % env.install_dir)
+    print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
 
 @_if_not_installed("samtools")
 def _install_samtools():
@@ -533,7 +533,7 @@ def _install_samtools():
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
             run("wget %s%s -O %s" % (url, mirror_info, os.path.split(url)[-1]))
-            run("tar -xjvpf %s" % (os.path.split(url)[-1]))
+            run("tar -xjpf %s" % (os.path.split(url)[-1]))
             with cd("samtools-%s%s" % (version, vext)):
                 run("sed -i.bak -r -e 's/-lcurses/-lncurses/g' Makefile")
                 run("make")
@@ -590,9 +590,9 @@ def _configure_environment():
         _configure_xvfb()
 
 def _configure_ec2_autorun():
-    #TODO change this to be pulled from the local directory and not the repo
-    url = os.path.join(REPO_ROOT_URL, "ec2autorun.py")
-    sudo("wget --output-document=%s/ec2autorun.py %s" % (env.install_dir, url))
+    ec2_autorun_file = "ec2autorun.py"
+    remote_ec2_autorun_path = os.path.join(env.install_dir,ec2_autorun_file)
+    _put_as_user(ec2_autorun_file,remote_ec2_autorun_path, user='root')
     # Create upstart configuration file for boot-time script
     cloudman_boot_file = 'cloudman.conf'
     with open( cloudman_boot_file, 'w' ) as f:
@@ -695,7 +695,7 @@ def _configure_xvfb():
 
 # == Machine image rebundling code
 def rebundle(reboot_if_needed=False, euca=False):
-    """f
+    """
     Rebundles the EC2 instance that is passed as the -H parameter
     This script handles all aspects of the rebundling process and is (almost) fully automated.
     Two things should be edited and provided before invoking it: AWS account information 
@@ -721,19 +721,18 @@ def rebundle(reboot_if_needed=False, euca=False):
         #region = RegionInfo(name="fog", endpoint="172.17.31.11:8773")
         #region = RegionInfo(name="Eucalyptus", endpoint="172.17.31.11:8773")
         region = RegionInfo(None, "eucalyptus", "172.17.31.11")
-        ec2_conn = boto.connect_ec2(aws_access_key_id = "WKy3rMzOWPouVOxK1p3Ar1C2uRBwa2FBXnCw", aws_secret_access_key=
-                                    "FLUOwRsrEBb7cBBDvrgfqdOA2JiYz4up9E0A",
+        ec2_conn = boto.connect_ec2(aws_access_key_id = os.environ['AWS_ACCESS_KEY'], aws_secret_access_key=os.environ['AWS_SECRET_KEY'],
                                     port=8773,
                                     region=region, path="/services/Eucalyptus",
                                     is_secure=False)
-
+        
 
         #ec2_conn = boto.connect_ec2(host="172.17.31.11:8773", region=region, path="/services/Eucalyptus")
         vol_size = 5 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
-        print(red(instance_id))                                                                                                                                    
+        print(red(instance_id))
         
         # Handle reboot if required
         if not _reboot(instance_id, reboot_if_needed):
@@ -742,54 +741,54 @@ def rebundle(reboot_if_needed=False, euca=False):
         #_clean() # Clean up the environment before rebundling
         image_id = None
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
-        print(red(kernel_id))                                                                                                                                    
+        print(red(kernel_id))
         if instance_id and availability_zone and kernel_id:
             #print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
                 print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
                 # instance region and availability zone is the same for eucalyptus
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
-#                vol = ec2_conn.create_volume(vol_size, availability_zone)
+                vol = ec2_conn.create_volume(vol_size, availability_zone)
                 #vol = ec2_conn.create_volume(vol_size, instance_region)
-#                vol2 = ec2_conn.create_volume(vol_size, availability_zone)
+                vol2 = ec2_conn.create_volume(vol_size, availability_zone)
                 #vol2 = ec2_conn.create_volume(vol_size,instance_region)
                 # TODO: wait until it becomes 'available'
-#                print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
+                print "Created 2 new volumes of size '%s' with IDs '%s' and '%s'" % (vol_size, vol.id, vol2.id)
             except EC2ResponseError, e:
                 print(red("Error creating volume: %s" % e))
                 return False
-
+            
             
 #            if vol:
             if 1:
                 try:
                     # Attach newly created volumes to the instance
                     #dev_id = '/dev/sdh'
-#                    dev_id = '/dev/vda'
-#                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
-#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
-#                        vol = ec2_conn.delete_volume(vol.id)
-#                        return False
-#
+                    dev_id = '/dev/vda'
+                    if not _attach(ec2_conn, instance_id, vol.id, dev_id, euca):
+                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol.id))
+                        vol = ec2_conn.delete_volume(vol.id)
+                        return False
+
 #                    #dev_id = '/dev/sdj'
-#                    dev_id = '/dev/vdb'
-#                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
-#                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
-#                        vol = ec2_conn.delete_volume(vol2.id)
-#                        return False
+                    dev_id = '/dev/vdb'
+                    if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
+                        print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
+                        vol = ec2_conn.delete_volume(vol2.id)
+                        return False
 
                     if euca:
 
-#                        sudo('mkfs.ext3 /dev/vda')
-#                        sudo('mkdir -m 000 -p /mnt/ebs')
-#                        sudo('mount /dev/vda /mnt/ebs')
-#                        put('euca2-*-x509.zip','/tmp')
-#                        run('unzip /tmp/euca2-*-x509.zip -d /tmp')
+                        sudo('mkfs.ext3 /dev/vda')
+                        sudo('mkdir -m 000 -p /mnt/ebs')
+                        sudo('mount /dev/vda /mnt/ebs')
+                        put('euca2-*-x509.zip','/tmp')
+                        run('unzip /tmp/euca2-*-x509.zip -d /tmp')
 
                         #is it probably in something is it doing in previous methods ?
                         #problem here (22 login refused to instance if bundled via Fabric, no problem if bundled manually)
 
-                        sudo('sudo euca-bundle-vol --ec2cert /tmp/cloud-cert.pem -c /tmp/euca2-admin-9bc9c71a-cert.pem -k /tmp/euca2-admin-9bc9c71a-pk.pem -u 59242150790379988457748463773923344394 -s 5000 -d /mnt/ebs -p  cloudman -e /root,/etc/udev,/var/lib/ec2,/mnt,/proc,/tmp,/var/lib/rabbitmq/mnesia')
+                        sudo('euca-bundle-vol --ec2cert /tmp/cloud-cert.pem -c /tmp/euca2-admin-9bc9c71a-cert.pem -k /tmp/euca2-admin-9bc9c71a-pk.pem -u 59242150790379988457748463773923344394 -s 5000 -d /mnt/ebs -p  cloudman -e /root,/etc/udev,/var/lib/ec2,/mnt,/proc,/tmp,/var/lib/rabbitmq/mnesia')
                         run('euca-upload-bundle --config /tmp/eucarc -m /mnt/ebs/cloudman.manifest.xml -b cloudman')
                         run('euca-register --config /tmp/eucarc cloudman/cloudman.manifest.xml')
 #                        run('uec-publish-image -l all -t image -k eki-650A174A -r none x86_64 /mnt/ebs/cloudman.img cloudman-uec')
@@ -797,7 +796,7 @@ def rebundle(reboot_if_needed=False, euca=False):
 #                       _detach(ec2_conn, instance_id, vol2.id)
 
                     else:
-                         # Move the file system onto the new volume (with a help of a script)
+                    # Move the file system onto the new volume (with a help of a script)
                          url = os.path.join(REPO_ROOT_URL, "instance-to-ebs-ami.sh")
                          # with contextlib.nested(cd('/tmp'), settings(hide('stdout', 'stderr'))):
                          with cd('/tmp'):
@@ -806,42 +805,42 @@ def rebundle(reboot_if_needed=False, euca=False):
                              sudo('wget %s' % url)
                              sudo('chmod u+x /tmp/%s' % os.path.split(url)[1])
                              sudo('./%s' % os.path.split(url)[1])
-                         # Detach the new volume
-                         _detach(ec2_conn, instance_id, vol.id)
-                         _detach(ec2_conn, instance_id, vol2.id)
-                         answer = confirm("Would you like to terminate the instance used during rebundling?", default=False)
-                         if answer:
-                             ec2_conn.terminate_instances([instance_id])
-                         # Create a snapshot of the new volume
-                         commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2' % os.getcwd()).strip()
-                         snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using mi-deployment at commit %s)" % commit_num)
-                         # Register the snapshot of the new volume as a machine image (i.e., AMI)
-                         arch = 'x86_64'
-                         root_device_name = '/dev/sda1'
-                         # Extra info on how EBS image registration is done: http://markmail.org/message/ofgkyecjktdhofgz
-                         # http://www.elastician.com/2009/12/creating-ebs-backed-ami-from-s3-backed.html
-                         # http://www.shlomoswidler.com/2010/01/creating-consistent-snapshots-of-live.html
-                         ebs = BlockDeviceType()
-                         ebs.snapshot_id = snap_id
-                         ebs.delete_on_termination = True
-                         ephemeral0_device_name = '/dev/sdb'
-                         ephemeral0 = BlockDeviceType()
-                         ephemeral0.ephemeral_name = 'ephemeral0'
-                         ephemeral1_device_name = '/dev/sdc'
-                         ephemeral1 = BlockDeviceType()
-                         ephemeral1.ephemeral_name = 'ephemeral1'
-                         # ephemeral2_device_name = '/dev/sdd' # Needed for instances w/ 3 ephemeral disks
-                         # ephemeral2 = BlockDeviceType()
-                         # ephemeral2.ephemeral_name = 'ephemeral2'
-                         # ephemeral3_device_name = '/dev/sde' # Needed for instances w/ 4 ephemeral disks
-                         # ephemeral3 = BlockDeviceType()
-                         # ephemeral3.ephemeral_name = 'ephemeral3'
-                         block_map = BlockDeviceMapping()
-                         block_map[root_device_name] = ebs
-                         block_map[ephemeral0_device_name] = ephemeral0
-                         block_map[ephemeral1_device_name] = ephemeral1
-                         name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
-                         image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
+                    # Detach the new volume
+                    _detach(ec2_conn, instance_id, vol.id)
+                    _detach(ec2_conn, instance_id, vol2.id)
+                    answer = confirm("Would you like to terminate the instance used during rebundling?", default=False)
+                    if answer:
+                        ec2_conn.terminate_instances([instance_id])
+                    # Create a snapshot of the new volume
+                    commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2' % os.getcwd()).strip()
+                    snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using mi-deployment at commit %s)" % commit_num)
+                    # Register the snapshot of the new volume as a machine image (i.e., AMI)
+                    arch = 'x86_64'
+                    root_device_name = '/dev/sda1'
+                    # Extra info on how EBS image registration is done: http://markmail.org/message/ofgkyecjktdhofgz
+                    # http://www.elastician.com/2009/12/creating-ebs-backed-ami-from-s3-backed.html
+                    # http://www.shlomoswidler.com/2010/01/creating-consistent-snapshots-of-live.html
+                    ebs = BlockDeviceType()
+                    ebs.snapshot_id = snap_id
+                    ebs.delete_on_termination = True
+                    ephemeral0_device_name = '/dev/sdb'
+                    ephemeral0 = BlockDeviceType()
+                    ephemeral0.ephemeral_name = 'ephemeral0'
+                    ephemeral1_device_name = '/dev/sdc'
+                    ephemeral1 = BlockDeviceType()
+                    ephemeral1.ephemeral_name = 'ephemeral1'
+                    # ephemeral2_device_name = '/dev/sdd' # Needed for instances w/ 3 ephemeral disks
+                    # ephemeral2 = BlockDeviceType()
+                    # ephemeral2.ephemeral_name = 'ephemeral2'
+                    # ephemeral3_device_name = '/dev/sde' # Needed for instances w/ 4 ephemeral disks
+                    # ephemeral3 = BlockDeviceType()
+                    # ephemeral3.ephemeral_name = 'ephemeral3'
+                    block_map = BlockDeviceMapping()
+                    block_map[root_device_name] = ebs
+                    block_map[ephemeral0_device_name] = ephemeral0
+                    block_map[ephemeral1_device_name] = ephemeral1
+                    name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
+                    image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
 
 
 
@@ -855,7 +854,7 @@ def rebundle(reboot_if_needed=False, euca=False):
                     print(green("--------------------------"))
                     answer = confirm("Would you like to make this machine image public?", default=False)
                     if image_id and answer:
-                         ec2_conn.modify_image_attribute(image_id, attribute='launchPermission', operation='add', groups=['all'])
+                        ec2_conn.modify_image_attribute(image_id, attribute='launchPermission', operation='add', groups=['all'])
                     
 
                 except EC2ResponseError, e:
@@ -941,19 +940,24 @@ def _attach( ec2_conn, instance_id, volume_id, device, euca ):
 
     try:
         print "Attaching volume '%s' to instance '%s' as device '%s'" % ( volume_id, instance_id, device )
-        volumestatus = ec2_conn.attach_volume( volume_id, instance_id, device )
+        vol = ec2_conn.get_all_volumes([volume_id])[0]
+        if not vol:
+            print(red('Volume id %s does not exist' % volume_id))
+            return False
+        attach_ok =  vol.attach(instance_id,device)
+        if not attach_ok:
+            print(red('boto Volume.attach() call failed'))
+            return False
+        volumestatus = vol.attachment_state()
     except EC2ResponseError, e:
         print "Attaching volume '%s' to instance '%s' as device '%s' failed. Exception: %s" % ( volume_id, instance_id, device, e )
         return False
     
     for counter in range( 30 ):
         print "Attach attempt %s, volume status: %s" % ( counter, volumestatus )
-        print(red(volume_id))                                                                                           
+        print(red(volume_id))
 
         volumecheck = 'attached'
-        if euca: 
-            volumecheck = 'in-use'
-
         if volumestatus == volumecheck:
             print "Volume '%s' attached to instance '%s' as device '%s'" % ( volume_id, instance_id, device )
             break
@@ -962,7 +966,7 @@ def _attach( ec2_conn, instance_id, volume_id, device, euca ):
             return False
         
         volumes = ec2_conn.get_all_volumes( [volume_id] )
-        print(red(len(volumes)))                                                                                           
+        print(red(len(volumes)))
         #volumestatus = volumes[0].attachment_state()
         volumestatus = volumes[0].volume_state()
         time.sleep( 30 )
@@ -1069,6 +1073,9 @@ def _check_fabric_version():
     if int(version.split(".")[0]) < 1:
         raise NotImplementedError("Please install Fabric version 1.0 or later.")
 
-def _put_as_user(local_file, remote_file, user, mode=None):
+def _put_as_user(local_file, remote_file, user='root', group=None, mode=None):
     put(local_file, remote_file, use_sudo=True, mode=mode)
-    sudo("chown %s:%s %s" % (user, user, remote_file))
+    if user:
+        if not group:
+            group = user
+        sudo("chown %s:%s %s" % (user, group, remote_file))
