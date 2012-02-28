@@ -866,7 +866,7 @@ def _reboot(instance_id, force=False):
         if not force:
             answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
         if force or answer:
-            wait_time = 35
+            wait_time = 60
             print "Rebooting instance with ID '%s' and waiting %s seconds" % (instance_id, wait_time)
             try:
                 reboot(wait_time)
