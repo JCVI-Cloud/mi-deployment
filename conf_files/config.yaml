@@ -1,0 +1,85 @@
+---
+# This file contains the list of system-level packages and libraries.
+# The list is grouped by applications or application suites that require
+# the given package. See conf.yaml for top-level, applications' configuration.
+# Any package commented out here will not be installed on the target system.
+# It is OK to have packages listed in more than one place too - that way it is
+# easier to omit which applications not to install without affecting other stuff.
+common:
+    packages:
+        - build-essential
+        - gcc
+        - git-core
+        - mercurial
+        - subversion
+        - unzip
+cloudman:
+    packages:
+        # Required for communication between instances
+        - rabbitmq-server
+        # Required to handle data volumes
+        - xfsprogs
+        # Required to compile nginx
+        - gcc
+        - g++
+        # Required for cluster-wide NFS file system
+        - nfs-kernel-server
+        - nfs-common
+        # Enable OpenMPI
+        - libopenmpi-dev
+        - libopenmpi1.3
+        - openmpi-bin
+        - openmpi-common
+        # Needed to enable Galaxy updating
+        - mercurial
+        # Used to organzie dependent tools
+        - stow
+        # Actually not sure what of the following is really needed
+        - libboost-all-dev
+        - libssl-dev
+        - libreadline6-dev
+galaxy:
+    packages:
+        - postgresql
+        - gfortran
+        - default-jdk
+        - python-rpy
+        - xvfb
+        - libpcre3-dev
+        # Parallel file download (used by the Galaxy ObjectStore)
+        - axel
+        # Required for compiling ProFTPd (must match installed PostgreSQL version!)
+        - postgresql-server-dev-8.4
+        # Required by Freebayes
+        - cmake
+        # Required by BWA
+        - zlib1g-dev
+        # Required by Samtools
+        - libncurses5-dev
+        # Required by Compute q-values
+        - r-cran-qvalue
+        # Required by HVIS
+        - r-bioc-hilbertvis
+        # Required by various R modules
+        - tcl-dev
+        # Required by various R modules
+        - tk-dev
+        # Required by RGalaxy
+        - imagemagick
+        - pdfjam
+        - python-scipy
+        - libsparsehash-dev
+wrf:
+    packages:
+        - netcdf-bin
+        - netcdf-dbg
+        - libpng12-0
+        - libpng12-dev
+        - libjasper-dev
+        - libjasper-runtime
+graphlab:
+    packages:
+        - libitpp-dev
+        - libitpp6-dbg
+
+    

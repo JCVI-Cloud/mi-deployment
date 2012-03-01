@@ -1,0 +1,11 @@
+---
+# Top level configuration file that specifies which applications or 
+# application suites should be installed.
+# Comment out any suites that should not be installed.
+applications:
+    # Do not comment out 'common'
+    - common
+    - cloudman
+    - galaxy
+    # - wrf
+    # - graphlab

@@ -30,6 +30,8 @@ from fabric.contrib.files import exists, settings, hide, contains, append
 from fabric.operations import reboot
 from fabric.colors import red, green, yellow
 
+from util.shared import _yaml_to_packages
+
 AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
@@ -228,7 +230,7 @@ def configure_MI(galaxy=False, do_rebundle=False):
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     _amazon_ec2_environment(galaxy)
     _update_system()
-    _required_packages()
+    _install_packages()
     _setup_users()
     _required_programs()
     _required_libraries()
@@ -253,6 +255,7 @@ def _update_system():
         sudo('apt-get -y update')
         run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y --force-yes') # Ensure a completely noninteractive upgrade
         sudo('apt-get -y dist-upgrade')
+    print(yellow("Done updating the system"))
 
 def _setup_sources():
     """Add sources for retrieving library packages."""
@@ -262,59 +265,44 @@ def _setup_sources():
 
 # == packages
 
-def _required_packages():
-    """Install needed packages using apt-get"""
+def _apt_packages(pkgs_to_install):
+    """Install packages available via apt-get.
+    """
     # Disable prompts during install/upgrade of rabbitmq-server package
     sudo('echo "rabbitmq-server rabbitmq-server/upgrade_previous note" | debconf-set-selections')
-    # default packages required by CloudMan
-    packages = ['stow',
-                'xfsprogs',
-                'build-essential',
-                'unzip',
-                'gcc', # Required to compile nginx
-                'g++',
-                'libboost1.40-all-dev',
-                'cmake',
-                'nfs-kernel-server',
-                'zlib1g-dev',
-                'libssl-dev',
-                'libreadline5-dev',
-                'mercurial',
-                'subversion',
-                'postgresql',
-                'gfortran',
-                'python-rpy',
-                'openjdk-6-jdk',
-                'libopenmpi-dev',
-                'libopenmpi1.3',
-                'openmpi-bin',
-                'openmpi-common',
-                'netcdf-bin', # Required by WRF
-                'netcdf-dbg', # Required by WRF
-                'libpng12-0', # Required by WRF
-                'libpng12-dev', # Required by WRF
-                'libjasper-dev', # Required by WRF
-                'libjasper-runtime', # Required by WRF
-                'libitpp-dev', # Required by GraphLab
-                'libitpp6-dbg', # Required by GraphLab
-                'libpcre3-dev', # Required to compile nginx
-                'git-core', # Required to install boto from source
-                'rabbitmq-server'] # Required by CloudMan for communication between instances
-    # Additional packages required for Galaxy images
-    if env.galaxy_too:
-        packages += ['axel', # Parallel file download (used by the Galaxy ObjectStore)
-                    'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
-                    'r-cran-qvalue', # required by Compute q-values
-                    'r-bioc-hilbertvis', # required by HVIS
-                    'tcl-dev', # required by various R modules
-                    'tk-dev', # required by various R modules
-                    'imagemagick', # required by RGalaxy
-                    'pdfjam', # required by RGalaxy
-                    'python-scipy', # required by RGalaxy
-                    'libsparsehash-dev', # Pull from outside (e.g., yaml file)?
-                    'xvfb' ] # required by R's pdf() output
-    for package in packages:
-        sudo("apt-get -y --force-yes install %s" % package)
+    print(yellow("Update and install all packages"))
+    _update_system() # Always update to ensure up-to-date mirrors
+    # A single line install is much faster - note that there is a max
+    # for the command line size, so we do 30 at a time
+    group_size = 30
+    i = 0
+    print(yellow("Updating %i packages" % len(pkgs_to_install)))
+    while i < len(pkgs_to_install):
+        sudo("apt-get -y --force-yes install %s" % " ".join(pkgs_to_install[i:i+group_size]))
+        i += group_size
+    sudo("apt-get clean")
+
+def _install_packages(yaml_file=None):
+    """ Get a list of packages to install base on the conf file and initiate
+        installation of thos via apt-get.
+    """
+    def _read_main_config(yaml_file=None):
+        """ Pull a list of groups to install based on the application configuration YAML.
+            Reads 'applications.yaml' and returns a list of packages
+        """
+        if yaml_file is None:
+            yaml_file = os.path.join('conf_files', "apps.yaml")
+        with open(yaml_file) as in_handle:
+            full_data = yaml.load(in_handle)
+        print(yellow("Reading %s" % yaml_file))
+        applications = full_data['applications']
+        applications = applications if applications else []
+        print(yellow("Applications whose packages to install: {0}".format(", ".join(applications))))
+        return applications
+    apps_to_install = _read_main_config(yaml_file)
+    pkg_config_file = os.path.join('conf_files', "config.yaml")
+    pkgs_to_install, _ = _yaml_to_packages(pkg_config_file, apps_to_install)
+    _apt_packages(pkgs_to_install)
     print(green("----- Required system packages installed -----"))
 
 # == users
