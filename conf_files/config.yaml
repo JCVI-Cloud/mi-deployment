@@ -9,19 +9,25 @@ common:
     packages:
         - build-essential
         - gcc
+        - g++
         - git-core
         - mercurial
         - subversion
         - unzip
 cloudman:
     packages:
+        # Required to install CloudMan-required Python libraries
+        - python-pip
         # Required for communication between instances
         - rabbitmq-server
         # Required to handle data volumes
         - xfsprogs
         # Required to compile nginx
+        - build-essential
         - gcc
-        - g++
+        - libpcre3-dev
+        - libssl-dev
+        - stow
         # Required for cluster-wide NFS file system
         - nfs-kernel-server
         - nfs-common
@@ -30,13 +36,12 @@ cloudman:
         - libopenmpi1.3
         - openmpi-bin
         - openmpi-common
-        # Needed to enable Galaxy updating
+        # Needed to enable updates for Galaxy
         - mercurial
-        # Used to organzie dependent tools
-        - stow
+        # Required for compiling ProFTPd (must match installed PostgreSQL version!)
+        - postgresql-server-dev-8.4
         # Actually not sure what of the following is really needed
         - libboost-all-dev
-        - libssl-dev
         - libreadline6-dev
 galaxy:
     packages:
@@ -45,11 +50,8 @@ galaxy:
         - default-jdk
         - python-rpy
         - xvfb
-        - libpcre3-dev
         # Parallel file download (used by the Galaxy ObjectStore)
         - axel
-        # Required for compiling ProFTPd (must match installed PostgreSQL version!)
-        - postgresql-server-dev-8.4
         # Required by Freebayes
         - cmake
         # Required by BWA
