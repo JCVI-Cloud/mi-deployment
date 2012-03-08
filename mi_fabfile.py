@@ -940,7 +940,11 @@ def _attach( ec2_conn, instance_id, volume_id, device, euca ):
 
     try:
         print "Attaching volume '%s' to instance '%s' as device '%s'" % ( volume_id, instance_id, device )
-        vol = ec2_conn.get_all_volumes([volume_id])[0]
+        # need to go this roundabout way to get the volume because euca does not filter the get_all_volumes request by the volume ID, but I want to keep the filter, so that it doesn't get overwhelmed on amazon
+        volumes = [ v for v in ec2_conn.get_all_volumes( volume_ids=(volume_id,) ) if v.id == volume_id ]
+        vol = None
+        if volumes:
+            vol = volumes[0]
         if not vol:
             print(red('Volume id %s does not exist' % volume_id))
             return False
@@ -965,10 +969,9 @@ def _attach( ec2_conn, instance_id, volume_id, device, euca ):
             print(red("Volume '%s' FAILED to attach to instance '%s' as device '%s'. Aborting." % ( volume_id, instance_id, device )))
             return False
         
-        volumes = ec2_conn.get_all_volumes( [volume_id] )
+        volumes = [ v for v in ec2_conn.get_all_volumes( volume_ids=(volume_id,) ) if v.id == volume_id ]
         print(red(len(volumes)))
-        #volumestatus = volumes[0].attachment_state()
-        volumestatus = volumes[0].volume_state()
+        volumestatus = volumes[0].attachment_state()
         time.sleep( 30 )
     return True
 
