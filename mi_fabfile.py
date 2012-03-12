@@ -2,7 +2,7 @@
 run CloudMan (http://usegalaxy.org/cloud) with Galaxy (http://galaxyproject.org).
 
 Usage:
-    fab -f mi_fabfile.py -i private_key_file -H servername <configure_MI[:galaxy][,do_rebundle] | rebundle>
+    fab -f mi_fabfile.py -i private_key_file -H servername <configure_MI[:galaxy][,do_rebundle] | rebundle | create_image>
 
 Options:
     configure_MI => configure machine image by installing all of the parts
@@ -663,7 +663,19 @@ def _configure_xvfb():
 
 # == Machine image rebundling code
 
-def rebundle2(reboot_if_needed=False):
+def create_image(reboot_if_needed=False):
+    """ Create a new Image based on the instance proviided by the -H parameter.
+        This method uses the boto 'create_image' API method.
+        Note that after completion, the Image ID is provided but it may take some
+        more time for the image to be availabel for use (this is a consequence of
+        the above method).
+        Also note that lately this has been a more reliable method for creating
+        Images than the rebundle method.
+        
+        :rtype: bool
+        :return: If instance was successfully rebundled and an Image ID was received,
+                 return True. False, otherwise.
+    """
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
@@ -681,7 +693,8 @@ def rebundle2(reboot_if_needed=False):
         instance_region = availability_zone[:-1] # Truncate zone letter to get region name
         ec2_conn = _get_ec2_conn(instance_region)
         try:
-            name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
+            print(yellow('galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")))
+            name = _get_image_name()
             image_id = ec2_conn.create_image(instance_id, name=name, description=AMI_DESCRIPTION)
             
             print(green("--------------------------"))
@@ -805,7 +818,8 @@ def rebundle(reboot_if_needed=False):
                     block_map[root_device_name] = ebs
                     block_map[ephemeral0_device_name] = ephemeral0
                     block_map[ephemeral1_device_name] = ephemeral1
-                    name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
+                    print(yellow('galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")))
+                    name = _get_image_name()
                     image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch,
                         kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
@@ -890,6 +904,20 @@ def _reboot(instance_id, force=False):
             print(red("Cannot rebundle without instance reboot. Aborting rebundling."))
             return False
     return True # Default to OK
+
+def _get_image_name():
+    """ Prompt a user for a name for the new Image while ensuring the name is not
+        empty and that the user is happy with the input.
+    
+    :rtype: string
+    :return: Name of the Image as provided and confirmed by the user.
+    """
+    name_ok = False
+    while not name_ok:
+        name = raw_input("Enter a name for the new Image: ")
+        if confirm("You entered '{0}'. Is this OK?".format(name)) and name != '':
+            name_ok = True
+    return name
 
 def _attach( ec2_conn, instance_id, volume_id, device ):
     """
