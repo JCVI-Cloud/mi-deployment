@@ -721,7 +721,17 @@ def rebundle(reboot_if_needed=False, euca=False):
         #region = RegionInfo(name="fog", endpoint="172.17.31.11:8773")
         #region = RegionInfo(name="Eucalyptus", endpoint="172.17.31.11:8773")
         region = RegionInfo(None, "eucalyptus", "172.17.31.11")
-        ec2_conn = boto.connect_ec2(aws_access_key_id = os.environ['AWS_ACCESS_KEY'], aws_secret_access_key=os.environ['AWS_SECRET_KEY'],
+
+        aws_access_key_id = ''  
+        aws_secret_access_key = ''
+        if  os.environ['EC2_ACCESS_KEY']:
+            aws_access_key_id = os.environ['EC2_ACCESS_KEY'] 
+            aws_secret_access_key=os.environ['EC2_SECRET_KEY']
+        else:
+            aws_access_key_id = os.environ['AWS_ACCESS_KEY'] 
+            aws_secret_access_key=os.environ['AWS_SECRET_KEY']
+
+        ec2_conn = boto.connect_ec2(aws_access_key_id , aws_secret_access_key,
                                     port=8773,
                                     region=region, path="/services/Eucalyptus",
                                     is_secure=False)
@@ -759,8 +769,7 @@ def rebundle(reboot_if_needed=False, euca=False):
                 return False
             
             
-#            if vol:
-            if 1:
+            if vol:
                 try:
                     # Attach newly created volumes to the instance
                     #dev_id = '/dev/sdh'
@@ -770,7 +779,7 @@ def rebundle(reboot_if_needed=False, euca=False):
                         vol = ec2_conn.delete_volume(vol.id)
                         return False
 
-#                    #dev_id = '/dev/sdj'
+                    #dev_id = '/dev/sdj'
                     dev_id = '/dev/vdb'
                     if not _attach(ec2_conn, instance_id, vol2.id, dev_id, euca):
                         print(red("Error attaching volume '%s' to the instance. Aborting." % vol2.id))
@@ -792,8 +801,10 @@ def rebundle(reboot_if_needed=False, euca=False):
                         run('euca-upload-bundle --config /tmp/eucarc -m /mnt/ebs/cloudman.manifest.xml -b cloudman')
                         run('euca-register --config /tmp/eucarc cloudman/cloudman.manifest.xml')
 #                        run('uec-publish-image -l all -t image -k eki-650A174A -r none x86_64 /mnt/ebs/cloudman.img cloudman-uec')
-#                       _detach(ec2_conn, instance_id, vol.id)
-#                       _detach(ec2_conn, instance_id, vol2.id)
+                        _detach(ec2_conn, instance_id, vol.id)
+                        _detach(ec2_conn, instance_id, vol2.id)
+                        ec2_conn.delete_volume(vol.id)
+                        ec2_conn.delete_volume(vol2.id)
 
                     else:
                     # Move the file system onto the new volume (with a help of a script)
@@ -806,55 +817,52 @@ def rebundle(reboot_if_needed=False, euca=False):
                              sudo('chmod u+x /tmp/%s' % os.path.split(url)[1])
                              sudo('./%s' % os.path.split(url)[1])
                     # Detach the new volume
-                    _detach(ec2_conn, instance_id, vol.id)
-                    _detach(ec2_conn, instance_id, vol2.id)
-                    answer = confirm("Would you like to terminate the instance used during rebundling?", default=False)
-                    if answer:
-                        ec2_conn.terminate_instances([instance_id])
-                    # Create a snapshot of the new volume
-                    commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2' % os.getcwd()).strip()
-                    snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using mi-deployment at commit %s)" % commit_num)
-                    # Register the snapshot of the new volume as a machine image (i.e., AMI)
-                    arch = 'x86_64'
-                    root_device_name = '/dev/sda1'
-                    # Extra info on how EBS image registration is done: http://markmail.org/message/ofgkyecjktdhofgz
-                    # http://www.elastician.com/2009/12/creating-ebs-backed-ami-from-s3-backed.html
-                    # http://www.shlomoswidler.com/2010/01/creating-consistent-snapshots-of-live.html
-                    ebs = BlockDeviceType()
-                    ebs.snapshot_id = snap_id
-                    ebs.delete_on_termination = True
-                    ephemeral0_device_name = '/dev/sdb'
-                    ephemeral0 = BlockDeviceType()
-                    ephemeral0.ephemeral_name = 'ephemeral0'
-                    ephemeral1_device_name = '/dev/sdc'
-                    ephemeral1 = BlockDeviceType()
-                    ephemeral1.ephemeral_name = 'ephemeral1'
-                    # ephemeral2_device_name = '/dev/sdd' # Needed for instances w/ 3 ephemeral disks
-                    # ephemeral2 = BlockDeviceType()
-                    # ephemeral2.ephemeral_name = 'ephemeral2'
-                    # ephemeral3_device_name = '/dev/sde' # Needed for instances w/ 4 ephemeral disks
-                    # ephemeral3 = BlockDeviceType()
-                    # ephemeral3.ephemeral_name = 'ephemeral3'
-                    block_map = BlockDeviceMapping()
-                    block_map[root_device_name] = ebs
-                    block_map[ephemeral0_device_name] = ephemeral0
-                    block_map[ephemeral1_device_name] = ephemeral1
-                    name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
-                    image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
-
-
-
-                    answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
-                    if answer:
-                        ec2_conn.delete_volume(vol.id)
-                    print "Deleting the volume (%s) used for rsync only" % vol2.id
-                    ec2_conn.delete_volume(vol2.id)
-                    print(green("--------------------------"))
-                    print(green("Finished creating new machine image. Image ID: '%s'" % (image_id)))
-                    print(green("--------------------------"))
-                    answer = confirm("Would you like to make this machine image public?", default=False)
-                    if image_id and answer:
-                        ec2_conn.modify_image_attribute(image_id, attribute='launchPermission', operation='add', groups=['all'])
+                         _detach(ec2_conn, instance_id, vol.id)
+                         _detach(ec2_conn, instance_id, vol2.id)
+                         answer = confirm("Would you like to terminate the instance used during rebundling?", default=False)
+                         if answer:
+                             ec2_conn.terminate_instances([instance_id])
+                         # Create a snapshot of the new volume
+                         commit_num = local('cd %s; hg tip | grep changeset | cut -d: -f2' % os.getcwd()).strip()
+                         snap_id = _create_snapshot(ec2_conn, vol.id, "AMI: galaxy-cloudman (using mi-deployment at commit %s)" % commit_num)
+                         # Register the snapshot of the new volume as a machine image (i.e., AMI)
+                         arch = 'x86_64'
+                         root_device_name = '/dev/sda1'
+                         # Extra info on how EBS image registration is done: http://markmail.org/message/ofgkyecjktdhofgz
+                         # http://www.elastician.com/2009/12/creating-ebs-backed-ami-from-s3-backed.html
+                         # http://www.shlomoswidler.com/2010/01/creating-consistent-snapshots-of-live.html
+                         ebs = BlockDeviceType()
+                         ebs.snapshot_id = snap_id
+                         ebs.delete_on_termination = True
+                         ephemeral0_device_name = '/dev/sdb'
+                         ephemeral0 = BlockDeviceType()
+                         ephemeral0.ephemeral_name = 'ephemeral0'
+                         ephemeral1_device_name = '/dev/sdc'
+                         ephemeral1 = BlockDeviceType()
+                         ephemeral1.ephemeral_name = 'ephemeral1'
+                         # ephemeral2_device_name = '/dev/sdd' # Needed for instances w/ 3 ephemeral disks
+                         # ephemeral2 = BlockDeviceType()
+                         # ephemeral2.ephemeral_name = 'ephemeral2'
+                         # ephemeral3_device_name = '/dev/sde' # Needed for instances w/ 4 ephemeral disks
+                         # ephemeral3 = BlockDeviceType()
+                         # ephemeral3.ephemeral_name = 'ephemeral3'
+                         block_map = BlockDeviceMapping()
+                         block_map[root_device_name] = ebs
+                         block_map[ephemeral0_device_name] = ephemeral0
+                         block_map[ephemeral1_device_name] = ephemeral1
+                         name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
+                         image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
+                         answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
+                         if answer:
+                             ec2_conn.delete_volume(vol.id)
+                         print "Deleting the volume (%s) used for rsync only" % vol2.id
+                         ec2_conn.delete_volume(vol2.id)
+                         print(green("--------------------------"))
+                         print(green("Finished creating new machine image. Image ID: '%s'" % (image_id)))
+                         print(green("--------------------------"))
+                         answer = confirm("Would you like to make this machine image public?", default=False)
+                         if image_id and answer:
+                             ec2_conn.modify_image_attribute(image_id, attribute='launchPermission', operation='add', groups=['all'])
                     
 
                 except EC2ResponseError, e:
