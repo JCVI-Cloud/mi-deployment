@@ -11,7 +11,7 @@ Assumptions:
 
 import os, sys, yaml, urllib2, logging, hashlib, time, subprocess, random
 from urlparse import urlparse
-
+from tempfile import TemporaryFile
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat, SubdomainCallingFormat
 from boto.s3.key import Key
 from boto.exception import S3ResponseError,BotoServerError
@@ -31,6 +31,32 @@ DEFAULT_BOOT_SCRIPT_NAME = 'cm_boot.py' # Ensure this file is accessible to anyo
 CLOUDMAN_HOME = '/mnt/cm'
 
 # ====================== Utility methods ======================
+
+def _add_hostname_to_hosts():
+    """Adds the hostname to /etc/hosts, if it is not being assigned by DNS -- required for rabbitmq
+    """
+    hostname_file = open('/etc/hostname','r')
+    hostname = hostname_file.readline().rstrip()
+    dev_null = open('/dev/null','w')
+    host_not_found = subprocess.call(('/bin/ping','-c','1',hostname), stdout=dev_null, stderr=dev_null) # only interested in return code
+    dev_null.close()
+    if host_not_found:
+        stdout = TemporaryFile()
+        stderr = TemporaryFile()
+        err = subprocess.call( ('/usr/bin/sudo','/usr/bin/perl', '-i.orig',  '-n','-e', r"""BEGIN {{$h=shift @ARGV}}
+        next if/\Q$h\E/;
+        s/^(127\.0\.0\.1\s+localhost)$/$1\n127.0.1.1 $h/;
+        print""", hostname,  '/etc/hosts'),
+            stdout=stdout, stderr=stderr)
+        if err:
+            stdout.seek(0)
+            out='\n'.join(stdout.readlines())
+            stderr.seek(0)
+            err='\n'.join(stderr.readlines())
+            raise OSError('Error updating /etc/hosts. Result code: {0}\n{1}\n{2}'.format( (err,out,err) ))
+        stdout.close()
+        stderr.close()
+
 
 def _get_user_data():
     for i in range(0, 5):
@@ -383,22 +409,25 @@ def _parse_user_data(ud):
 
 # ====================== Driver code ======================
 
-if not os.path.exists(LOCAL_PATH):
-    os.mkdir(LOCAL_PATH)
-
-# Logging setup
-formatter = logging.Formatter("[%(levelname)s] %(module)s:%(lineno)d %(asctime)s: %(message)s")
-console = logging.StreamHandler() # log to console - used during testing
-# console.setLevel(logging.INFO) # accepts >INFO levels
-console.setFormatter(formatter)
-log_file = logging.FileHandler(os.path.join(LOCAL_PATH, "%s.log" % sys.argv[0]), 'w') # log to a file
-log_file.setLevel(logging.DEBUG) # accepts all levels
-log_file.setFormatter(formatter)
-log = logging.root
-log.addHandler( console )
-log.addHandler( log_file )
-log.setLevel( logging.DEBUG )
-
-ud = _get_user_data()
-_parse_user_data(ud)
-log.info("---> %s done <---" % sys.argv[0])
+if __name__ == '__main__':
+    if not os.path.exists(LOCAL_PATH):
+        os.mkdir(LOCAL_PATH)
+    
+    # Logging setup
+    formatter = logging.Formatter("[%(levelname)s] %(module)s:%(lineno)d %(asctime)s: %(message)s")
+    console = logging.StreamHandler() # log to console - used during testing
+    # console.setLevel(logging.INFO) # accepts >INFO levels
+    console.setFormatter(formatter)
+    log_file = logging.FileHandler(os.path.join(LOCAL_PATH, "%s.log" % sys.argv[0]), 'w') # log to a file
+    log_file.setLevel(logging.DEBUG) # accepts all levels
+    log_file.setFormatter(formatter)
+    log = logging.root
+    log.addHandler( console )
+    log.addHandler( log_file )
+    log.setLevel( logging.DEBUG )
+    
+    _add_hostname_to_hosts() # make sure this is done on first boot
+    
+    ud = _get_user_data()
+    _parse_user_data(ud)
+    log.info("---> %s done <---" % sys.argv[0])
