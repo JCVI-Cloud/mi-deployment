@@ -33,6 +33,7 @@ from boto.ec2.regioninfo import RegionInfo
 from fabric.api import sudo, run, env, cd, put, local
 from fabric.contrib.console import confirm
 from fabric.contrib.files import exists, settings, hide, contains, append
+from fabric import context_managers
 from fabric.operations import reboot
 from fabric.colors import red, green, yellow
 
@@ -555,27 +556,17 @@ def _install_r_packages():
 # == libraries
  
 def _required_libraries(euca=False):
-    """Install pyhton libraries"""
+    """Install python libraries"""
 
     # Libraries to be be installed using easy_install
     libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob', 'boto']
     for library in libraries:
         sudo("pip install %s" % library)
     print(green("----- Required python libraries installed -----"))
-    #_install_boto() # or use packaged version above as part of easy_install
 
     #euca-tools need boto version 1.9
     sudo('pip install -UIv http://pypi.python.org/packages/source/b/boto/boto-1.9b.tar.gz')
 
-# @_if_not_installed # FIXME: check if boto is installed or just enable installation of an updated version
-def _install_boto():
-    install_dir = env.install_dir + "/boto"
-    with contextlib.nested(cd(env.install_dir), settings(hide('stdout'))):
-        sudo("git clone http://github.com/boto/boto.git")
-        with cd(install_dir):
-            sudo("python setup.py install")
-            version = run('python -c"import boto; print boto.__version__"')
-            print(green("----- boto %s installed -----" % version))
 
 # == environment
 

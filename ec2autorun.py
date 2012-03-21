@@ -9,12 +9,13 @@ Assumptions:
     do not require any form of authentication
 """
 
-import os, sys, yaml, urllib2, logging, hashlib, time, subprocess, random
+import os, sys, yaml, urllib2, logging, hashlib, time, subprocess, random, glob
 from urlparse import urlparse
 from tempfile import TemporaryFile
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat, SubdomainCallingFormat
 from boto.s3.key import Key
 from boto.exception import S3ResponseError,BotoServerError
+import boto # to get Version
 logging.getLogger('boto').setLevel(logging.INFO) # Only log boto messages >=INFO
 
 
@@ -52,8 +53,8 @@ def _add_hostname_to_hosts():
             stdout.seek(0)
             out='\n'.join(stdout.readlines())
             stderr.seek(0)
-            err='\n'.join(stderr.readlines())
-            raise OSError('Error updating /etc/hosts. Result code: {0}\n{1}\n{2}'.format( (err,out,err) ))
+            err_txt='\n'.join(stderr.readlines())
+            raise OSError('Error updating /etc/hosts. Result code: {0}\n{1}\n{2}'.format( err,out,err_text ))
         stdout.close()
         stderr.close()
 
@@ -399,6 +400,23 @@ def _handle_yaml(user_data):
     if _get_boot_script(ud):
         _run_boot_script(DEFAULT_BOOT_SCRIPT_NAME)
 
+# if only an old version is installed, install the newer one (1.9 has a very different API, and cloudman needs 2.2)
+def _install_new_boto():
+    boto_ver = '2.2.2'
+    if boto.Version < boto_ver:
+        log.debug('Updating Boto to %s' % (boto_ver) )
+        install_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        tmpdir='/tmp'
+        out_file="{0}/tar_boto-{1}.tar.gz".format(tmpdir,boto_ver)
+        boto_url = 'https://github.com/boto/boto/tarball/{0}'.format(boto_ver)
+        subprocess.check_call(('wget', boto_url, '-O', out_file))
+        os.chdir(tmpdir)
+        subprocess.check_call(('tar', '-zxf', out_file))
+        boto_source_dir=glob.glob('boto-boto*')[0]
+        os.chdir(boto_source_dir)
+        subprocess.check_call(('sudo', 'python', 'setup.py', 'install'))
+
+
 def _parse_user_data(ud):
     if ud == '':
         _handle_empty()
@@ -427,6 +445,7 @@ if __name__ == '__main__':
     log.setLevel( logging.DEBUG )
     
     _add_hostname_to_hosts() # make sure this is done on first boot
+    _install_new_boto()
     
     ud = _get_user_data()
     _parse_user_data(ud)
