@@ -33,21 +33,38 @@ CLOUDMAN_HOME = '/mnt/cm'
 
 # ====================== Utility methods ======================
 
+def _get_self_private_ip():
+    self_private_ip = None
+    for i in range(0, 5):
+        try:
+            log.debug('Gathering instance private hostname, attempt %s' % i)
+            fp = urllib2.urlopen('http://169.254.169.254/latest/meta-data/local-hostname')
+            self_private_ip = fp.read()
+            fp.close()
+            if self_private_ip:
+                break
+        except IOError:
+            pass
+    return self_private_ip
+
 def _add_hostname_to_hosts():
     """Adds the hostname to /etc/hosts, if it is not being assigned by DNS -- required for rabbitmq
     """
     hostname_file = open('/etc/hostname','r')
     hostname = hostname_file.readline().rstrip()
+    private_ip = _get_self_private_ip()
     dev_null = open('/dev/null','w')
     host_not_found = subprocess.call(('/bin/ping','-c','1',hostname), stdout=dev_null, stderr=dev_null) # only interested in return code
     dev_null.close()
     if host_not_found:
         stdout = TemporaryFile()
         stderr = TemporaryFile()
-        err = subprocess.call( ('/usr/bin/sudo','/usr/bin/perl', '-i.orig',  '-n','-e', r"""BEGIN {{$h=shift @ARGV}}
+        err = subprocess.call( ('/usr/bin/sudo','/usr/bin/perl', '-i.orig',  '-n','-e', r"""BEGIN {($h,$ip)=@ARGV;
+        $ip='127.0.1.1' unless $ip
+        }
         next if/\Q$h\E/;
-        s/^(127\.0\.0\.1\s+localhost)$/$1\n127.0.1.1 $h/;
-        print""", hostname,  '/etc/hosts'),
+        s/^(127\.0\.0\.1\s+localhost)$/$1\n$ip $h/;
+        print""", hostname, private_ip,  '/etc/hosts'),
             stdout=stdout, stderr=stderr)
         if err:
             stdout.seek(0)
