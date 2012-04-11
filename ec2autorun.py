@@ -463,7 +463,7 @@ if __name__ == '__main__':
     
     
     ud = _get_user_data()
-    if ud['access_key']:
+    if ud:
         _add_hostname_to_hosts() # make sure this is done on first boot
         _install_new_boto()
 
