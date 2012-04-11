@@ -461,9 +461,13 @@ if __name__ == '__main__':
     log.addHandler( log_file )
     log.setLevel( logging.DEBUG )
     
-    _add_hostname_to_hosts() # make sure this is done on first boot
-    _install_new_boto()
     
     ud = _get_user_data()
-    _parse_user_data(ud)
-    log.info("---> %s done <---" % sys.argv[0])
+    if ud['access_key']:
+        _add_hostname_to_hosts() # make sure this is done on first boot
+        _install_new_boto()
+
+        _parse_user_data(ud)
+        log.info("---> %s done <---" % sys.argv[0])
+    else:
+        log.info('---> Nothing to do. No user data passed to instance <---')
