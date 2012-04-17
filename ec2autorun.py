@@ -322,6 +322,8 @@ def _handle_yaml(user_data):
         log.warning("The provided user data should contain password field.")
     elif ud['password'] == '':
         log.warning("The password field of user data should not be empty.")
+    else: # ensure the password is a string
+        ud['password'] = str(ud['password'])
     
     if not ud.has_key('bucket_default'):
         log.debug("The provided user data does not contain bucket_default field; setting it to '%s'." 
