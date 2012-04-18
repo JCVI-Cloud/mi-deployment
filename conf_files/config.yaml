@@ -43,6 +43,13 @@ cloudman:
         # Actually not sure what of the following is really needed
         - libboost-all-dev
         - libreadline6-dev
+        # Required for s3fs
+        - libfuse-dev
+        - pkg-config
+        - fuse-utils
+        - libcurl4-openssl-dev
+        - libxml2-dev
+        - mime-support
 galaxy:
     packages:
         - postgresql
@@ -59,6 +66,11 @@ galaxy:
         # Required by Samtools
         - libncurses5-dev
         # Required by Compute q-values
+        - liblzma-dev
+        - r-base
+        - r-base-core
+        - r-base-dev
+        - r-cran-lattice
         - r-cran-qvalue
         # Required by HVIS
         - r-bioc-hilbertvis

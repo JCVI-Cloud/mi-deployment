@@ -15,7 +15,6 @@ Options:
 """
 import os, os.path, time, contextlib, tempfile, yaml, sys
 import datetime as dt
-from contextlib import contextmanager
 try:
     boto = __import__("boto")
     from boto.ec2.connection import EC2Connection
@@ -30,7 +29,8 @@ from fabric.contrib.files import exists, settings, hide, contains, append
 from fabric.operations import reboot
 from fabric.colors import red, green, yellow
 
-from util.shared import _yaml_to_packages
+from util.shared import (_yaml_to_packages, _if_not_installed, _make_tmp_dir,
+                        _get_install, _configure_make)
 
 AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 10.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
@@ -51,7 +51,12 @@ def _amazon_ec2_environment(galaxy=False):
     """ Environment setup for Galaxy on Ubuntu 10.04 on EC2 """
     env.user = 'ubuntu'
     env.use_sudo = True
+    if env.use_sudo: 
+        env.safe_sudo = sudo
+    else: 
+        env.safe_sudo = run
     env.install_dir = '/opt/galaxy/pkg'
+    env.system_install = env.install_dir # Used in util/shared.py
     env.tmp_dir = "/mnt"
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
@@ -173,46 +178,6 @@ biocLite( c( "AnnotationDbi", "ArrayExpress", "ArrayTools", "Biobase",
 """
 
 xvfb_default_template = """XVFB_OPTS=":42 -auth /var/lib/xvfb/auth -ac -nolisten tcp -shmem -screen 0 800x600x24"\n"""
- 
-# == Decorators and context managers
-
-def _if_not_installed(pname): 
-    def argcatcher(func):
-        def decorator(*args, **kwargs):
-            # with settings(hide('warnings', 'running', 'stdout', 'stderr'),
-            #         warn_only=True):
-            with settings(warn_only=True):
-                result = run(pname)
-            if result.return_code == 127:
-                print(yellow("'%s' not installed; return code: '%s'" % (pname, result.return_code)))
-                return func(*args, **kwargs)
-            print(green("'%s' is already installed" % pname))
-        return decorator
-    return argcatcher
-
-def _if_installed(pname):
-    """Run if the given program name is installed.
-    """
-    def argcatcher(func):
-        def decorator(*args, **kwargs):
-            with settings(
-                    hide('warnings', 'running', 'stdout', 'stderr'),
-                    warn_only=True):
-                result = run(pname)
-            if result.return_code in [0, 1]: 
-                return func(*args, **kwargs)
-        return decorator
-    return argcatcher
-
-@contextmanager
-def _make_tmp_dir():
-    work_dir = os.path.join(env.tmp_dir, "tmp")
-    if not exists(work_dir):
-        sudo("mkdir %s" % work_dir)
-        sudo("chown %s %s" % (env.user, work_dir))
-    yield work_dir
-    if exists(work_dir):
-        sudo("rm -rf %s" % work_dir)
 
 # -- Fabric instructions
 
@@ -340,6 +305,7 @@ def _required_programs():
     _get_sge()
     _install_setuptools()
     _install_nginx()
+    _install_s3fs()
     if env.galaxy_too:
         # _install_postgresql()
         _configure_postgresql()
@@ -406,6 +372,12 @@ def _install_nginx():
     if not exists("%s/nginx" % cloudman_default_dir):
         sudo("ln -s %s/sbin/nginx %s/nginx" % (install_dir, cloudman_default_dir))
     print(green("----- nginx installed and configured -----"))
+
+@_if_not_installed("s3fs")
+def _install_s3fs():
+    version = "1.61"
+    url = "http://s3fs.googlecode.com/files/s3fs-{0}.tar.gz".format(version)
+    _get_install(url, env, _configure_make)
 
 @_if_not_installed("pg_ctl")
 def _install_postgresql():
