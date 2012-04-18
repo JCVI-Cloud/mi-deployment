@@ -34,18 +34,18 @@ CLOUDMAN_HOME = '/mnt/cm'
 
 # ====================== Utility methods ======================
 
-def setup_logging():
+def _setup_logging():
     # Logging setup
     formatter = logging.Formatter("[%(levelname)s] %(module)s:%(lineno)d %(asctime)s: %(message)s")
     console = logging.StreamHandler() # log to console - used during testing
     # console.setLevel(logging.INFO) # accepts >INFO levels
     console.setFormatter(formatter)
-    log_file = logging.FileHandler(os.path.join(LOCAL_PATH, "%s.log" % os.path.splitext(sys.argv[0])[0]), 'w')
-    log_file.setLevel(logging.DEBUG) # accepts all levels
-    log_file.setFormatter(formatter)
+    # log_file = logging.FileHandler(os.path.join(LOCAL_PATH, "%s.log" % os.path.splitext(sys.argv[0])[0]), 'w')
+    # log_file.setLevel(logging.DEBUG) # accepts all levels
+    # log_file.setFormatter(formatter)
     log = logging.root
     log.addHandler(console)
-    log.addHandler(log_file)
+    # log.addHandler(log_file)
     log.setLevel(logging.DEBUG)
     return log
 
@@ -433,7 +433,7 @@ def main():
     if not os.path.exists(LOCAL_PATH):
         os.mkdir(LOCAL_PATH)
     global log
-    log = setup_logging()
+    log = _setup_logging()
     ud = _get_user_data()
     _parse_user_data(ud)
     log.info("---> %s done <---" % sys.argv[0])

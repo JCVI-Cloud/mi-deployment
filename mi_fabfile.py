@@ -72,7 +72,7 @@ cm_upstart = """description     "Start CloudMan contextualization script"
 start on runlevel [2345]
 
 task
-exec python %s 2> %s.err
+exec python %s 2> %s.log
 """
 
 rabitmq_upstart = """description "RabbitMQ Server"
