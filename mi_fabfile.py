@@ -498,7 +498,7 @@ def _install_r_packages():
 def _required_libraries():
     """Install pyhton libraries"""
     # Libraries to be be installed using easy_install
-    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob']
+    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob', 'oca']
     for library in libraries:
         sudo("easy_install %s" % library)
     print(green("----- Required python libraries installed -----"))
