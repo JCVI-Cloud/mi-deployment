@@ -67,18 +67,15 @@ sge_request = """
 -v DISPLAY=:42
 """
 
-cm_upstart = """
-description     "Start CloudMan contextualization script"
+cm_upstart = """description     "Start CloudMan contextualization script"
 
 start on runlevel [2345]
-start on started rabbitmq-server
 
 task
-exec python %s/ec2autorun.py
+exec python %s 2> %s.err
 """
 
-rabitmq_upstart = """
-description "RabbitMQ Server"
+rabitmq_upstart = """description "RabbitMQ Server"
 author  "RabbitMQ"
 
 start on runlevel [2345] 
@@ -386,7 +383,7 @@ def _install_nginx():
             run("wget %s" % url)
             run("tar xvzf %s" % os.path.split(url)[1])
             with cd("nginx-%s" % version):
-                run("./configure --prefix=%s --with-ipv6 --add-module=../nginx_upload_module-%s --user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module" % (install_dir, upload_module_version))
+                run("./configure --prefix=%s --with-ipv6 --add-module=../nginx_upload_module-%s --user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module --with-cc-opt=-Wno-error" % (install_dir, upload_module_version))
                 run("make")
                 sudo("make install")
                 with settings(warn_only=True):
@@ -558,12 +555,14 @@ def _configure_environment():
         _configure_xvfb()
 
 def _configure_ec2_autorun():
-    url = os.path.join(REPO_ROOT_URL, "ec2autorun.py")
-    sudo("wget --output-document=%s/ec2autorun.py %s" % (env.install_dir, url))
+    filename = "ec2autorun.py"
+    path = os.path.join(env.install_dir, filename)
+    url = os.path.join(REPO_ROOT_URL, filename)
+    sudo("wget --output-document=%s %s" % (path, url))
     # Create upstart configuration file for boot-time script
     cloudman_boot_file = 'cloudman.conf'
     with open( cloudman_boot_file, 'w' ) as f:
-        print >> f, cm_upstart % env.install_dir
+        print >> f, cm_upstart % (path, os.path.splitext(path)[0])
     remote_file = '/etc/init/%s' % cloudman_boot_file
     _put_as_user(cloudman_boot_file, remote_file, user='root')
     os.remove(cloudman_boot_file)
