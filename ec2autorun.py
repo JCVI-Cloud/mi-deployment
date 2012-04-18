@@ -269,6 +269,27 @@ def _get_default_bucket_url(ud=None):
     log.debug("Default bucket url: %s" % default_bucket_name)
     return bucket_url
 
+def _handle_freenx(passwd):
+    user = "ubuntu"
+    p1 = subprocess.Popen(["echo", "%s:%s" % (user, passwd)], stdout=subprocess.PIPE)
+    p2 = subprocess.Popen(["chpasswd"], stdin=p1.stdout, stdout=subprocess.PIPE)
+    p1.stdout.close()
+    p2.communicate()[0]
+    cl = ["sed", "-i", "s/^PasswordAuthentication .*/PasswordAuthentication yes/",
+          "/etc/ssh/sshd_config"]
+    subprocess.check_call(cl)
+    cl = ["/etc/init.d/ssh", "reload"]
+    subprocess.check_call(cl)
+    cl = ["dpkg-reconfigure", "-pcritical", "freenx-server"]
+    # On slower/small instance types, there can be a conflict when running
+    # debconf so try this a few times
+    for i in range(5):
+        retcode = subprocess.call(cl)
+        if retcode == 0:
+            break
+        else:
+            time.sleep(5)
+
 # ====================== Actions methods ======================
 
 def _handle_empty():
@@ -290,6 +311,14 @@ def _handle_yaml(user_data):
     """ Process user data in YAML format"""
     log.info("Handling user data in YAML format.")
     ud = yaml.load(user_data)
+    # Handle bad user data as a string
+    if ud == user_data:
+        return _handle_empty()
+    # Handle freenx passwords and the case with only a password sent
+    if "freenxpass" in ud:
+        _handle_freenx(ud["freenxpass"])
+        if len(ud) == 1:
+            return _handle_empty()
     # Create a YAML file from user data and store it as USER_DATA_FILE
     # This code simply ensures fields required by CloudMan are in the 
     # created file. Any other fields that might be included as user data
