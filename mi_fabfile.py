@@ -48,27 +48,26 @@ REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 # different deployment scenarios (an environment must be loaded as the first line
 # in any invokable function)
 def _amazon_ec2_environment(galaxy=False):
-    """ Environment setup for Galaxy on Ubuntu 10.04 on EC2 """
+    """ Environment setup for Galaxy on Ubuntu 12.04 on EC2 """
     env.user = 'ubuntu'
     env.use_sudo = True
     if env.use_sudo: 
         env.safe_sudo = sudo
     else: 
         env.safe_sudo = run
-    env.install_dir = '/opt/galaxy/pkg'
+    env.install_dir = '/opt/cloudman/pkg'
     env.system_install = env.install_dir # Used in util/shared.py
     env.tmp_dir = "/mnt"
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
-    env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu lucid/"]
+    env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu precise/"]
 
 
 # == Templates
-sge_request = """
--b no
+sge_request = """-b no
 -shell yes
--v PATH=/opt/sge/bin/lx24-amd64:/opt/galaxy/bin:/mnt/galaxyTools/tools/bin:/mnt/galaxyTools/tools/pkg/fastx_toolkit_0.0.13:/mnt/galaxyTools/tools/pkg/bowtie-0.12.5:/mnt/galaxyTools/tools/pkg/samtools-0.1.7_x86_64-linux:/mnt/galaxyTools/tools/pkg/gnuplot-4.4.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+-v PATH=/opt/sge/bin/lx24-amd64:/opt/galaxy/bin:/opt/cloudman/bin:/mnt/galaxyTools/tools/bin:/mnt/galaxyTools/tools/pkg/fastx_toolkit_0.0.13:/mnt/galaxyTools/tools/pkg/bowtie-0.12.5:/mnt/galaxyTools/tools/pkg/samtools-0.1.7_x86_64-linux:/mnt/galaxyTools/tools/pkg/gnuplot-4.4.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 -v DISPLAY=:42
 """
 
@@ -190,9 +189,10 @@ def configure_MI(galaxy=False, do_rebundle=False):
     _check_fabric_version()
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
-    _amazon_ec2_environment(galaxy)
+    apps_to_install = _get_apps_to_install()
+    _amazon_ec2_environment(galaxy='galaxy' in apps_to_install)
     _update_system()
-    _install_packages()
+    _install_packages(apps_to_install)
     _setup_users()
     _required_programs()
     _required_libraries()
@@ -207,6 +207,22 @@ def configure_MI(galaxy=False, do_rebundle=False):
         reboot_if_needed = False
     if do_rebundle or confirm("Would you like to bundle this instance into a new machine image (note that budling applies and was tested only on EC2 instances)?"):
         rebundle(reboot_if_needed)
+
+# == applications
+
+def _get_apps_to_install(yaml_file=None):
+    """ Pull a list of groups to install based on the application configuration YAML.
+        Reads 'applications.yaml' and returns a list of packages
+    """
+    if yaml_file is None:
+        yaml_file = os.path.join('conf_files', "apps.yaml")
+    with open(yaml_file) as in_handle:
+        full_data = yaml.load(in_handle)
+    print(yellow("Reading %s" % yaml_file))
+    applications = full_data['applications']
+    applications = applications if applications else []
+    print(yellow("Applications whose packages to install: {0}".format(", ".join(applications))))
+    return applications
 
 # == system
 
@@ -244,24 +260,10 @@ def _apt_packages(pkgs_to_install):
         i += group_size
     sudo("apt-get clean")
 
-def _install_packages(yaml_file=None):
-    """ Get a list of packages to install base on the conf file and initiate
-        installation of thos via apt-get.
+def _install_packages(apps_to_install):
+    """ Get a list of packages to install based on the conf file and initiate
+        installation of those via apt-get.
     """
-    def _read_main_config(yaml_file=None):
-        """ Pull a list of groups to install based on the application configuration YAML.
-            Reads 'applications.yaml' and returns a list of packages
-        """
-        if yaml_file is None:
-            yaml_file = os.path.join('conf_files', "apps.yaml")
-        with open(yaml_file) as in_handle:
-            full_data = yaml.load(in_handle)
-        print(yellow("Reading %s" % yaml_file))
-        applications = full_data['applications']
-        applications = applications if applications else []
-        print(yellow("Applications whose packages to install: {0}".format(", ".join(applications))))
-        return applications
-    apps_to_install = _read_main_config(yaml_file)
     pkg_config_file = os.path.join('conf_files', "config.yaml")
     pkgs_to_install, _ = _yaml_to_packages(pkg_config_file, apps_to_install)
     _apt_packages(pkgs_to_install)
@@ -367,7 +369,7 @@ def _install_nginx():
         sudo("wget --output-document=%s/%s %s" % (remote_errdoc_dir, nginx_errdoc_file, url))
         sudo('tar xvzf %s' % nginx_errdoc_file)
     
-    cloudman_default_dir = "/opt/galaxy/sbin"
+    cloudman_default_dir = "/opt/cloudman/sbin"
     sudo("mkdir -p %s" % cloudman_default_dir)
     if not exists("%s/nginx" % cloudman_default_dir):
         sudo("ln -s %s/sbin/nginx %s/nginx" % (install_dir, cloudman_default_dir))
@@ -407,7 +409,16 @@ def _configure_postgresql(delete_main_dbcluster=False):
     also has the effect of stopping the auto-start of the postmaster server at 
     machine boot. The method adds all of the PostgreSQL commands to the PATH.
     """
-    pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d' ' | cut -f1 -d'-' | cut -f1-2 -d'.'")
+    pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d':'")
+    pg_ver = pg_ver.strip()[:3] # Get first 3 chars of the version since that's all that's used for dir name
+    got_ver = False
+    while(not got_ver):
+        try:
+            pg_ver = float(pg_ver)
+            got_ver = True
+        except Exception:
+            print(red("Problems trying to figure out PostgreSQL version."))
+            pg_ver = raw_input(red("Enter the correct one (eg, 9.1; not 9.1.3): "))
     if delete_main_dbcluster:
         sudo('pg_dropcluster --stop %s main' % pg_ver, user='postgres')
     exp = "export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver
@@ -557,6 +568,10 @@ def _configure_sge():
     if not exists(sge_root):
         sudo("mkdir -p %s" % sge_root)
         sudo("chown sgeadmin:sgeadmin %s" % sge_root)
+    # In case /opt/galaxy dir does not exist, for backward compatibility create a symlink
+    opt_galaxy = '/opt/galaxy'
+    if not exists(opt_galaxy):
+        sudo("ln --force -s %s %s" % (env.install_dir, opt_galaxy))
 
 def _configure_galaxy_env():
     # Create .sge_request file in galaxy home. This will be needed for proper execution of SGE jobs
