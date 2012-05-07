@@ -334,8 +334,8 @@ def _get_sge():
         print(green("SGE already exists at '%s'" % install_dir))
 
 def _install_nginx():
-    version = "0.7.67"
-    upload_module_version = "2.0.12"
+    version = "1.2.0"
+    upload_module_version = "2.2.0"
     upload_url = "http://www.grid.net.ru/nginx/download/" \
                  "nginx_upload_module-%s.tar.gz" % upload_module_version
     url = "http://nginx.org/download/nginx-%s.tar.gz" % version
