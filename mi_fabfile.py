@@ -56,13 +56,16 @@ def _amazon_ec2_environment(galaxy=False):
     else: 
         env.safe_sudo = run
     env.install_dir = '/opt/cloudman/pkg'
-    env.system_install = env.install_dir # Used in util/shared.py
+    # env.system_install is used in util/shared.py (make sure we're not installing stuff to '/')
+    if os.path.split(env.install_dir)[0] == '/':
+        env.system_install = env.install_dir
+    else:
+        env.system_install = os.path.split(env.install_dir)[0]
     env.tmp_dir = "/mnt"
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
     env.sources_file = "/etc/apt/sources.list"
     env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu precise/"]
-
 
 # == Templates
 sge_request = """-b no
@@ -380,6 +383,7 @@ def _install_s3fs():
     version = "1.61"
     url = "http://s3fs.googlecode.com/files/s3fs-{0}.tar.gz".format(version)
     _get_install(url, env, _configure_make)
+    print(green("----- s3fs %s installed -----" % version))
 
 @_if_not_installed("pg_ctl")
 def _install_postgresql():
