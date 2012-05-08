@@ -83,6 +83,42 @@ task
 exec python %s 2> %s.log
 """
 
+vimrc_template = """runtime! debian.vim
+" Handle some typos
+:command WQ wq:
+:command Wq wq
+:command W w
+:command Q q
+
+syntax on
+set background=dark
+set shiftwidth=4
+set tabstop=4
+"color cmustang
+
+if has("autocmd")
+  filetype plugin indent on
+endif
+
+set showcmd             " Show (partial) command in status line.
+set showmatch           " Show matching brackets.
+set ignorecase          " Do case insensitive matching
+set smartcase           " Do smart case matching
+set incsearch           " Incremental search
+set hidden              " Hide buffers when they are abandoned
+set number              " line numbers
+set cursorline          " Highlight current line
+
+filetype on                   " Enable filetype detection
+filetype indent on            " Enable filetype-specific indenting
+set autoindent smartindent    " auto/smart indent
+
+highlight LineNr ctermfg=grey ctermbg=234 guibg=#202020 " Set color of the line numbers
+
+" Have 3 lines of offset (or buffer) when scrolling
+set scrolloff=3
+"""
+
 xvfb_init_template = """#!/bin/sh
 
 ### BEGIN INIT INFO
@@ -592,6 +628,15 @@ def _configure_nfs():
 def _configure_bash():
     """Some convenience/preference settings"""
     append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
+    
+    # Create a custom vimrc
+    vimrc = 'vimrc'
+    with open(vimrc, 'w') as f:
+        print >> f, vimrc_template
+    remote_file = '/etc/vim/%s' % vimrc
+    _put_as_user(vimrc, remote_file, user='root')
+    os.remove(vimrc)
+    print(green("----- Added a custom vimrc to {0} -----").format(remote_file))
 
 def _save_image_conf_support():
     """Save the type of image configuration performed to a file on the image
