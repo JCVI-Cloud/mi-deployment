@@ -20,7 +20,11 @@ cloudman:
         - python-pip
         # Required for communication between instances
         - rabbitmq-server
-        # Required to handle data volumes
+        # Required to handle data volumes (including LVM support)
+        - lvm2
+        - dmsetup 
+        - mdadm
+        - reiserfsprogs
         - xfsprogs
         # Required to compile nginx
         - build-essential

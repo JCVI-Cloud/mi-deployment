@@ -654,11 +654,11 @@ def _configure_xvfb():
 # == Machine image rebundling code
 
 def create_image(reboot_if_needed=False):
-    """ Create a new Image based on the instance proviided by the -H parameter.
+    """ Create a new Image based on the instance provided by the -H parameter.
         This method uses the boto 'create_image' API method.
         Note that after completion, the Image ID is provided but it may take some
         more time for the image to be availabel for use (this is a consequence of
-        the above method).
+        the above mentioned method).
         Also note that lately this has been a more reliable method for creating
         Images than the rebundle method.
         
@@ -688,8 +688,8 @@ def create_image(reboot_if_needed=False):
             image_id = ec2_conn.create_image(instance_id, name=name, description=AMI_DESCRIPTION)
             
             print(green("--------------------------"))
-            print(green("Create a new machine image. Image ID (AMI): '%s'" % (image_id)))
-            print(yellow("Before this image can be used, the underlying snapshot still needs to be completed."))
+            print(green("Creating the new machine image now. Image ID (AMI) will be: '%s'" % (image_id)))
+            print(yellow("Before this image can be used, the background process still needs to be completed."))
             print(green("--------------------------"))
             answer = confirm("Would you like to make this machine image public?", default=False)
             if image_id and answer:
@@ -994,7 +994,7 @@ def _clean_rabbitmq_env():
 def _clean():
     """Clean up the image before rebundling"""
     fnames = [".bash_history", "/var/log/firstboot.done", ".nx_setup_done",
-              "/var/crash/*", "%s/ec2autorun.py.log" % env.install_dir]
+              "/var/crash/*", "%s/ec2autorun.log" % env.install_dir]
     for fname in fnames:
         sudo("rm -f %s" % fname)
     rmdirs = ["/mnt/galaxyData", "/mnt/cm", "/tmp/cm"]
@@ -1005,7 +1005,7 @@ def _clean():
     # Stop Apache from starting automatically at boot (it conflicts with Galaxy's nginx)
     sudo('/usr/sbin/update-rc.d -f apache2 remove')
     # Cleanup some of the logging files that might get bundled into the image
-    for cf in ['%s/ec2autorun.py.log' % env.install_dir, '/var/crash/*', '/var/log/firstboot.done', '$HOME/.nx_setup_done']:
+    for cf in ['%s/ec2autorun.log' % env.install_dir, '/var/crash/*', '/var/log/firstboot.done', '$HOME/.nx_setup_done']:
         if exists(cf):
             sudo('rm -f %s' % cf)
 
