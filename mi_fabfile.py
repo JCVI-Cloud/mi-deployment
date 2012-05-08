@@ -83,17 +83,6 @@ task
 exec python %s 2> %s.log
 """
 
-rabitmq_upstart = """description "RabbitMQ Server"
-author  "RabbitMQ"
-
-start on runlevel [2345] 
-
-stop on runlevel [01456]
-
-exec /usr/sbin/rabbitmq-multi start_all 1 > /var/log/rabbitmq/startup_log 2> /var/log/rabbitmq/startup_err 
-# respawn
-"""
-
 xvfb_init_template = """#!/bin/sh
 
 ### BEGIN INIT INFO
@@ -195,8 +184,6 @@ def configure_MI(galaxy=False, do_rebundle=False):
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     apps_to_install = _get_apps_to_install()
     _amazon_ec2_environment(galaxy='galaxy' in apps_to_install)
-    _setup_apt_automation()
-    _update_system()
     _install_packages(apps_to_install)
     _setup_users()
     _required_programs()
@@ -251,6 +238,7 @@ def _setup_sources():
 def _apt_packages(pkgs_to_install):
     """Install packages available via apt-get.
     """
+    _setup_apt_automation()
     # Disable prompts during install/upgrade of rabbitmq-server package
     sudo('echo "rabbitmq-server rabbitmq-server/upgrade_previous note" | debconf-set-selections')
     print(yellow("Update and install all packages"))
@@ -556,17 +544,6 @@ def _configure_ec2_autorun():
     _put_as_user(cloudman_boot_file, remote_file, user='root')
     os.remove(cloudman_boot_file)
     print(green("----- ec2_autorun added to upstart -----"))
-    
-    # Create upstart configuration file for RabbitMQ
-    rabbitmq_server_conf = 'rabbitmq-server.conf'
-    with open( rabbitmq_server_conf, 'w' ) as f:
-        print >> f, rabitmq_upstart #% env.install_dir
-    remote_file = '/etc/init/%s' % rabbitmq_server_conf
-    _put_as_user(rabbitmq_server_conf, remote_file, user='root')
-    os.remove(rabbitmq_server_conf)
-    # Stop the init.d script
-    sudo('/usr/sbin/update-rc.d -f rabbitmq-server remove')
-    print(green("----- RabbitMQ added to upstart -----"))
 
 def _configure_sge():
     """This method only sets up the environment for SGE w/o actually setting up SGE"""
@@ -577,7 +554,7 @@ def _configure_sge():
     # In case /opt/galaxy dir does not exist, for backward compatibility create a symlink
     opt_galaxy = '/opt/galaxy'
     if not exists(opt_galaxy):
-        sudo("ln --force -s %s %s" % (env.install_dir, opt_galaxy))
+        sudo("ln --force -s %s %s" % (env.system_install, opt_galaxy))
 
 def _configure_galaxy_env():
     # Create .sge_request file in galaxy home. This will be needed for proper execution of SGE jobs
