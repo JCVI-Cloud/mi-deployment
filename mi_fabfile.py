@@ -32,7 +32,7 @@ from fabric.colors import red, green, yellow
 from util.shared import (_yaml_to_packages, _if_not_installed, _make_tmp_dir,
                         _get_install, _configure_make)
 
-AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 10.04" # Value used for AMI description field
+AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 12.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
@@ -48,7 +48,7 @@ REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 # different deployment scenarios (an environment must be loaded as the first line
 # in any invokable function)
 def _amazon_ec2_environment(galaxy=False):
-    """ Environment setup for Galaxy on Ubuntu 12.04 on EC2 """
+    """ Environment setup for Galaxy on Ubuntu on EC2 """
     env.user = 'ubuntu'
     env.use_sudo = True
     if env.use_sudo: 
@@ -684,8 +684,8 @@ def create_image(reboot_if_needed=False):
         ec2_conn = _get_ec2_conn(instance_region)
         try:
             print(yellow('galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")))
-            name = _get_image_name()
-            image_id = ec2_conn.create_image(instance_id, name=name, description=AMI_DESCRIPTION)
+            name, desc = _get_image_name()
+            image_id = ec2_conn.create_image(instance_id, name=name, description=desc)
             
             print(green("--------------------------"))
             print(green("Creating the new machine image now. Image ID (AMI) will be: '%s'" % (image_id)))
@@ -809,8 +809,8 @@ def rebundle(reboot_if_needed=False):
                     block_map[ephemeral0_device_name] = ephemeral0
                     block_map[ephemeral1_device_name] = ephemeral1
                     print(yellow('galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")))
-                    name = _get_image_name()
-                    image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch,
+                    name, desc = _get_image_name()
+                    image_id = ec2_conn.register_image(name, description=desc, architecture=arch,
                         kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
                     if answer:
@@ -907,7 +907,14 @@ def _get_image_name():
         name = raw_input("Enter a name for the new Image: ")
         if confirm("You entered '{0}'. Is this OK?".format(name)) and name != '':
             name_ok = True
-    return name
+    desc = AMI_DESCRIPTION
+    print (yellow("Default image description: {0}".format(desc)))
+    desc_ok = False
+    while not desc_ok:
+        desc = raw_input("Enter a description for the new Image: ")
+        if confirm("You entered '{0}'. Is this OK?".format(desc)) and desc != '':
+            desc_ok = True
+    return name, desc
 
 def _attach( ec2_conn, instance_id, volume_id, device ):
     """
