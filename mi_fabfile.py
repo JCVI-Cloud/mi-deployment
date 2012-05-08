@@ -30,7 +30,7 @@ from fabric.operations import reboot
 from fabric.colors import red, green, yellow
 
 from util.shared import (_yaml_to_packages, _if_not_installed, _make_tmp_dir,
-                        _get_install, _configure_make)
+                        _get_install, _configure_make, _setup_apt_automation)
 
 AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 12.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
@@ -64,6 +64,7 @@ def _amazon_ec2_environment(galaxy=False):
     env.tmp_dir = "/mnt"
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
+    env.shell_config = "~/.bashrc"
     env.sources_file = "/etc/apt/sources.list"
     env.std_sources = ["deb http://watson.nci.nih.gov/cran_mirror/bin/linux/ubuntu precise/"]
 
@@ -194,6 +195,7 @@ def configure_MI(galaxy=False, do_rebundle=False):
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     apps_to_install = _get_apps_to_install()
     _amazon_ec2_environment(galaxy='galaxy' in apps_to_install)
+    _setup_apt_automation()
     _update_system()
     _install_packages(apps_to_install)
     _setup_users()

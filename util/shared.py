@@ -220,3 +220,36 @@ def _python_make(env):
     env.safe_sudo("python%s setup.py install --skip-build" % env.python_version_ext)
     for clean in ["dist", "build", "lib/*.egg-info"]:
         env.safe_sudo("rm -rf %s" % clean)
+
+def _setup_apt_automation():
+    """Setup the environment to be fully automated for tricky installs.
+
+    Sun Java license acceptance:
+    http://www.davidpashley.com/blog/debian/java-license
+
+    MySQL root password questions; install with empty root password:
+    http://snowulf.com/archives/540-Truly-non-interactive-unattended-apt-get-install.html
+
+    Postfix, setup for no configuration. See more on issues here:
+    http://www.uluga.ubuntuforums.org/showthread.php?p=9120196
+    """
+    interactive_cmd = "export DEBIAN_FRONTEND=noninteractive"
+    if not contains(env.shell_config, interactive_cmd):
+        append(env.shell_config, interactive_cmd)
+    package_info = [
+            "postfix postfix/main_mailer_type select No configuration",
+            "postfix postfix/mailname string notusedexample.org",
+            "mysql-server-5.1 mysql-server/root_password string '(password omitted)'",
+            "mysql-server-5.1 mysql-server/root_password_again string '(password omitted)'",
+            "sun-java6-jdk shared/accepted-sun-dlj-v1-1 select true",
+            "sun-java6-jre shared/accepted-sun-dlj-v1-1 select true",
+            "sun-java6-bin shared/accepted-sun-dlj-v1-1 select true",
+            "grub-pc grub2/linux_cmdline string ''",
+            "grub-pc grub-pc/install_devices_empty boolean true",
+            "acroread acroread/default-viewer boolean false",
+            "rabbitmq-server rabbitmq-server/upgrade_previous note",
+            ]
+    cmd = ""
+    for l in package_info:
+        cmd += "echo %s | /usr/bin/debconf-set-selections ; " % l
+    sudo(cmd)
