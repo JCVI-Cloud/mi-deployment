@@ -7,7 +7,7 @@ PATH=/bin:/usr/bin:/sbin:/usr/local/sbin
 # Defaults
 RUN="yes"
 OPTIONS=""
-CONF=/opt/galaxy/etc/proftpd.conf
+CONF=/opt/cloudman/etc/proftpd.conf
 
 test -f $DAEMON || exit 0
 
@@ -20,7 +20,7 @@ if [ ! -r $CONF ]; then
 fi
 
 NAME=proftpd
-DAEMON=/opt/galaxy/sbin/$NAME
+DAEMON=/opt/cloudman/sbin/$NAME
 
 PIDFILE=$(grep -i 'pidfile' $CONF | sed -e 's/pidfile[\t ]\+//i')
 if [ "x$PIDFILE" = "x" ];

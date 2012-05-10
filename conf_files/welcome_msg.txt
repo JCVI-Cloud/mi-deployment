@@ -1,6 +1,6 @@
-Galaxy CLoud FTP
+Galaxy CloudMan FTP
 
-This FTP server allows users to upload large data to this Galaxy cloud instance.
+This FTP server allows users to upload large data to this Galaxy Cloud instance.
 
 Your login uses the same credentials as your Galaxy login - email address and
 password.

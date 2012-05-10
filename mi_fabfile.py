@@ -468,9 +468,9 @@ def _install_setuptools():
             print(green("----- setuptools installed -----"))
 
 def _install_proftpd():
-    version = "1.3.3d"
-    postgres_ver = "8.4"
-    url = "ftp://mirrors.ibiblio.org/proftpd/distrib/source/proftpd-%s.tar.gz" % version
+    version = "1.3.4a"
+    postgres_ver = "9.1"
+    url = "ftp://ftp.tpnet.pl/pub/linux/proftpd/distrib/source/proftpd-%s.tar.gz" % version
     install_dir = os.path.join(env.install_dir, 'proftpd')
     remote_conf_dir = os.path.join(install_dir, "etc")
     # skip install if already present
@@ -482,7 +482,10 @@ def _install_proftpd():
             with settings(hide('stdout')):
                 run("tar xvzf %s" % os.path.split(url)[1])
             with cd("proftpd-%s" % version):
-                run("CFLAGS='-I/usr/include/postgresql' ./configure --prefix=%s --disable-auth-file --disable-ncurses --disable-ident --disable-shadow --enable-openssl --with-modules=mod_sql:mod_sql_postgres:mod_sql_passwd --with-libraries=/usr/lib/postgres/%s/lib" % (install_dir, postgres_ver))
+                run("CFLAGS='-I/usr/include/postgresql' ./configure --prefix=%s " \
+                    "--disable-auth-file --disable-ncurses --disable-ident --disable-shadow " \
+                    "--enable-openssl --with-modules=mod_sql:mod_sql_postgres:mod_sql_passwd " \
+                    "--with-libraries=/usr/lib/postgresql/%s/lib" % (install_dir, postgres_ver))
                 sudo("make")
                 sudo("make install")
                 sudo("make clean")
