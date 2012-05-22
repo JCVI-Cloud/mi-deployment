@@ -380,7 +380,9 @@ def _install_nginx():
             run("wget %s" % url)
             run("tar xvzf %s" % os.path.split(url)[1])
             with cd("nginx-%s" % version):
-                run("./configure --prefix=%s --with-ipv6 --add-module=../nginx_upload_module-%s --user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module --with-cc-opt=-Wno-error" % (install_dir, upload_module_version))
+                run("./configure --prefix=%s --with-ipv6 --add-module=../nginx_upload_module-%s "
+                    "--user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module "
+                    "--with-cc-opt=-Wno-error --with-debug" % (install_dir, upload_module_version))
                 run("make")
                 sudo("make install")
                 with settings(warn_only=True):
