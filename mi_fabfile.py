@@ -55,12 +55,11 @@ def _amazon_ec2_environment(galaxy=False):
         env.safe_sudo = sudo
     else: 
         env.safe_sudo = run
+    # install_dir is used to install custom packages used primarily by CloudMan or integrated apps
     env.install_dir = '/opt/cloudman/pkg'
-    # env.system_install is used in util/shared.py (make sure we're not installing stuff to '/')
-    if os.path.split(env.install_dir)[0] == '/':
-        env.system_install = env.install_dir
-    else:
-        env.system_install = os.path.split(env.install_dir)[0]
+    # system_install is used to install apps at the system level
+    # (used in util/shared.py)
+    env.system_install = '/usr'
     env.tmp_dir = "/mnt"
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
@@ -410,7 +409,7 @@ def _install_nginx():
 def _install_s3fs():
     version = "1.61"
     url = "http://s3fs.googlecode.com/files/s3fs-{0}.tar.gz".format(version)
-    _get_install(url, env, _configure_make)
+    _get_install(url, env, _configure_make, install_path=env.system_install)
     print(green("----- s3fs %s installed -----" % version))
 
 @_if_not_installed("pg_ctl")
@@ -594,8 +593,12 @@ def _configure_sge():
         sudo("chown sgeadmin:sgeadmin %s" % sge_root)
     # In case /opt/galaxy dir does not exist, for backward compatibility create a symlink
     opt_galaxy = '/opt/galaxy'
+    if os.path.split(env.install_dir)[0] == '/':
+        custom_install_dir = env.install_dir
+    else:
+        custom_install_dir = os.path.split(env.install_dir)[0]
     if not exists(opt_galaxy):
-        sudo("ln --force -s %s %s" % (env.system_install, opt_galaxy))
+        sudo("ln --force -s %s %s" % (custom_install_dir, opt_galaxy))
 
 def _configure_galaxy_env():
     # Create .sge_request file in galaxy home. This will be needed for proper execution of SGE jobs

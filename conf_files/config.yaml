@@ -44,7 +44,7 @@ cloudman:
         # Needed to enable updates for Galaxy
         - mercurial
         # Required for compiling ProFTPd (must match installed PostgreSQL version!)
-        - postgresql-server-dev-8.4
+        - postgresql-server-dev-9.1
         # Actually not sure what of the following is really needed
         - libboost-all-dev
         - libreadline6-dev

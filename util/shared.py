@@ -142,8 +142,8 @@ def _fetch_and_unpack(url, need_dir=True):
         run("%s %s" % (tar_cmd, tar_file))
         return _safe_dir_name(dir_name, need_dir)
 
-def _configure_make(env):
-    run("./configure --disable-werror --prefix=%s " % env.system_install)
+def _configure_make(env, install_path=None):
+    run("./configure --disable-werror --prefix=%s " % install_path if install_path else env.system_install)
     run("make")
     env.safe_sudo("make install")
 
@@ -159,7 +159,7 @@ def _make_copy(find_cmd=None, premake_cmd=None, do_make=True):
                 env.safe_sudo("mv -f %s %s" % (fname.rstrip("\r"), install_dir))
     return _do_work
 
-def _get_install(url, env, make_command, post_unpack_fn=None):
+def _get_install(url, env, make_command, post_unpack_fn=None, install_path=None):
     """Retrieve source from a URL and install in our system directory.
     """
     with _make_tmp_dir() as work_dir:
@@ -168,7 +168,7 @@ def _get_install(url, env, make_command, post_unpack_fn=None):
             with cd(dir_name):
                 if post_unpack_fn:
                     post_unpack_fn(env)
-                make_command(env)
+                make_command(env, install_path)
 
 def _get_install_local(url, env, make_command, dir_name=None):
     """Build and install in a local directory.
