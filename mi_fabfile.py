@@ -566,6 +566,7 @@ def _configure_environment():
     _configure_sge()
     _configure_nfs()
     _configure_bash()
+    _configure_logrotate()
     _save_image_conf_support()
     if env.galaxy_too:
         _configure_galaxy_env()
@@ -645,6 +646,15 @@ def _configure_bash():
     _put_as_user(vimrc, remote_file, user='root')
     os.remove(vimrc)
     print(green("----- Added a custom vimrc to {0} -----").format(remote_file))
+
+def _configure_logrotate():
+    """
+    Add logrotate config file, which will automatically rotate CloudMan's log
+    """
+    lr_local = os.path.join('conf_files', "cloudman.logrotate")
+    lr_remote = '/etc/logrotate.d/cloudman'
+    _put_as_user(lr_local, lr_remote, user='root')
+    print(green("----- Added logrotate file to {0} -----").format(lr_remote))
 
 def _save_image_conf_support():
     """Save the type of image configuration performed to a file on the image
