@@ -82,42 +82,6 @@ task
 exec python %s 2> %s.log
 """
 
-vimrc_template = """runtime! debian.vim
-" Handle some typos
-:command WQ wq:
-:command Wq wq
-:command W w
-:command Q q
-
-syntax on
-set background=dark
-set shiftwidth=4
-set tabstop=4
-"color cmustang
-
-if has("autocmd")
-  filetype plugin indent on
-endif
-
-set showcmd             " Show (partial) command in status line.
-set showmatch           " Show matching brackets.
-set ignorecase          " Do case insensitive matching
-set smartcase           " Do smart case matching
-set incsearch           " Incremental search
-set hidden              " Hide buffers when they are abandoned
-set number              " line numbers
-set cursorline          " Highlight current line
-
-filetype on                   " Enable filetype detection
-filetype indent on            " Enable filetype-specific indenting
-set autoindent smartindent    " auto/smart indent
-
-highlight LineNr ctermfg=grey ctermbg=234 guibg=#202020 " Set color of the line numbers
-
-" Have 3 lines of offset (or buffer) when scrolling
-set scrolloff=3
-"""
-
 xvfb_init_template = """#!/bin/sh
 
 ### BEGIN INIT INFO
@@ -219,6 +183,9 @@ def configure_MI(galaxy=False, do_rebundle=False):
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     apps_to_install = _get_apps_to_install()
     _amazon_ec2_environment(galaxy='galaxy' in apps_to_install)
+    _configure_bash()
+    return
+    
     _install_packages(apps_to_install)
     _setup_users()
     _required_programs()
@@ -645,13 +612,10 @@ def _configure_bash():
     """Some convenience/preference settings"""
     append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
     
-    # Create a custom vimrc
-    vimrc = 'vimrc'
-    with open(vimrc, 'w') as f:
-        print >> f, vimrc_template
-    remote_file = '/etc/vim/%s' % vimrc
-    _put_as_user(vimrc, remote_file, user='root')
-    os.remove(vimrc)
+    # Create a custom vimrc for the system
+    vimrc_url = os.path.join(REPO_ROOT_URL, 'conf_files', 'vimrc')
+    remote_file = '/etc/vim/vimrc'
+    sudo("wget --output-document=%s %s" % (remote_file, vimrc_url))
     print(green("----- Added a custom vimrc to {0} -----").format(remote_file))
 
 def _configure_logrotate():
