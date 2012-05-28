@@ -7,7 +7,7 @@ PATH=/bin:/usr/bin:/sbin:/usr/local/sbin
 # Defaults
 RUN="yes"
 OPTIONS=""
-CONF=/opt/cloudman/etc/proftpd.conf
+CONF=REPLACE_THIS_WITH_CUSTOM_INSTALL_DIR/etc/proftpd.conf
 
 test -f $DAEMON || exit 0
 
@@ -20,12 +20,12 @@ if [ ! -r $CONF ]; then
 fi
 
 NAME=proftpd
-DAEMON=/opt/cloudman/sbin/$NAME
+DAEMON=REPLACE_THIS_WITH_CUSTOM_INSTALL_DIR/sbin/$NAME
 
 PIDFILE=$(grep -i 'pidfile' $CONF | sed -e 's/pidfile[\t ]\+//i')
 if [ "x$PIDFILE" = "x" ];
 then
-   PIDFILE=`ps ax | grep proftpd | grep -v grep | cut -f2 -d' '`
+   PIDFILE=`ps ax | grep proftpd | grep -v grep | cut -f1 -d' '`
 fi
 
 trap "" 1
