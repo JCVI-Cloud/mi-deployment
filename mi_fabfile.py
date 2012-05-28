@@ -183,9 +183,6 @@ def configure_MI(galaxy=False, do_rebundle=False):
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     apps_to_install = _get_apps_to_install()
     _amazon_ec2_environment(galaxy='galaxy' in apps_to_install)
-    _configure_bash()
-    return
-    
     _install_packages(apps_to_install)
     _setup_users()
     _required_programs()
