@@ -2,7 +2,7 @@
 run CloudMan (http://usegalaxy.org/cloud) with Galaxy (http://galaxyproject.org).
 
 Usage:
-    fab -f mi_fabfile.py -i private_key_file -H servername <configure_MI[:galaxy][,do_rebundle] | rebundle>
+    fab -f mi_fabfile.py -i private_key_file -H servername <configure_MI[:galaxy][,do_rebundle] | rebundle | create_image>
 
 Options:
     configure_MI => configure machine image by installing all of the parts
@@ -14,30 +14,31 @@ Options:
     configure_MI:euc=True => deploy in eucalyptus, the default is Amazon ec2
     rebundle => rebundle the machine image without doing any configuration
 """
-import sys, os, os.path, time, contextlib, tempfile, yaml, boto
+import os, os.path, time, contextlib, tempfile, yaml, sys, boto
 import datetime as dt
-from contextlib import contextmanager
 import re
 from urlparse import urlparse
 
 from boto.ec2.connection import EC2Connection
 from boto.exception import EC2ResponseError
-from boto import *
 from boto.ec2 import EC2Connection
 from boto.ec2.regioninfo import RegionInfo
-from boto.ec2.blockdevicemapping import BlockDeviceType
-from boto.ec2.blockdevicemapping import BlockDeviceMapping
+from boto.ec2.blockdevicemapping import BlockDeviceType, BlockDeviceMapping
 
 from fabric.api import sudo, run, env, cd, put, local
 from fabric.contrib.console import confirm
-from fabric.contrib.files import exists, settings, hide, contains, append
+from fabric.contrib.files import exists, settings, hide, contains, append, sed
 from fabric import context_managers
 from fabric.operations import reboot
 from fabric.colors import red, green, yellow
 
-AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 10.04" # Value used for AMI description field
+from util.shared import (_yaml_to_packages, _if_not_installed, _make_tmp_dir,
+                        _get_install, _configure_make, _setup_apt_automation)
+
+AMI_DESCRIPTION = "CloudMan for Galaxy on Ubuntu 12.04" # Value used for AMI description field
 # -- Adjust this link if using content from another location
 CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
+
 EUCA_BUNDLE_PREFIX='cloudman'
 MOUNTPOINT_FOR_BUNDLE = '/mnt/ebs'
 DEFAULT_EUCA_CONFIG_DIR='{0}/.euca'.format(os.environ['HOME'])
@@ -55,45 +56,38 @@ DEFAULT_EUCA_CONFIG_DIR='{0}/.euca'.format(os.environ['HOME'])
 # different deployment scenarios (an environment must be loaded as the first line
 # in any invokable function)
 def _amazon_ec2_environment(galaxy=False):
-    """ Environment setup for Galaxy on Ubuntu 10.04 on EC2 """
+    """ Environment setup for Galaxy on Ubuntu on EC2 """
     env.user = 'ubuntu'
     env.use_sudo = True
-    env.install_dir = '/opt/galaxy/pkg'
+    if env.use_sudo: 
+        env.safe_sudo = sudo
+    else: 
+        env.safe_sudo = run
+    # install_dir is used to install custom packages used primarily by CloudMan or integrated apps
+    env.install_dir = '/opt/cloudman/pkg'
+    # system_install is used to install apps at the system level
+    # (used in util/shared.py)
+    env.system_install = '/usr'
     env.tmp_dir = "/mnt"
     env.galaxy_too = galaxy # Flag indicating if MI should be configured for Galaxy as well
     env.shell = "/bin/bash -l -c"
+    env.shell_config = "~/.bashrc"
     env.sources_file = "/etc/apt/sources.list"
-    env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu lucid/", "deb http://us.archive.ubuntu.com/ubuntu/ lucid main restricted"]
-
+    env.std_sources = ["deb http://cran.stat.ucla.edu/bin/linux/ubuntu precise/", "deb http://us.archive.ubuntu.com/ubuntu/ precise main restricted"]
 
 # == Templates
-sge_request = """
--b no
+sge_request = """-b no
 -shell yes
--v PATH=/opt/sge/bin/lx24-amd64:/opt/galaxy/bin:/mnt/galaxyTools/tools/bin:/mnt/galaxyTools/tools/pkg/fastx_toolkit_0.0.13:/mnt/galaxyTools/tools/pkg/bowtie-0.12.5:/mnt/galaxyTools/tools/pkg/samtools-0.1.7_x86_64-linux:/mnt/galaxyTools/tools/pkg/gnuplot-4.4.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+-v PATH=/opt/sge/bin/lx24-amd64:/opt/galaxy/bin:/opt/cloudman/bin:/mnt/galaxyTools/tools/bin:/mnt/galaxyTools/tools/pkg/fastx_toolkit_0.0.13:/mnt/galaxyTools/tools/pkg/bowtie-0.12.5:/mnt/galaxyTools/tools/pkg/samtools-0.1.7_x86_64-linux:/mnt/galaxyTools/tools/pkg/gnuplot-4.4.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 -v DISPLAY=:42
 """
 
-cm_upstart = """
-description     "Start CloudMan contextualization script"
+cm_upstart = """description     "Start CloudMan contextualization script"
 
 start on runlevel [2345]
-start on started rabbitmq-server
 
 task
-exec python %s/ec2autorun.py
-"""
-
-rabitmq_upstart = """
-description "RabbitMQ Server"
-author  "RabbitMQ"
-
-start on runlevel [2345] 
-
-stop on runlevel [01456]
-
-exec /usr/sbin/rabbitmq-multi start_all 1 > /var/log/rabbitmq/startup_log 2> /var/log/rabbitmq/startup_err 
-# respawn
+exec python %s 2> %s.log
 """
 
 xvfb_init_template = """#!/bin/sh
@@ -183,46 +177,6 @@ biocLite( c( "AnnotationDbi", "ArrayExpress", "ArrayTools", "Biobase",
 """
 
 xvfb_default_template = """XVFB_OPTS=":42 -auth /var/lib/xvfb/auth -ac -nolisten tcp -shmem -screen 0 800x600x24"\n"""
- 
-# == Decorators and context managers
-
-def _if_not_installed(pname): 
-    def argcatcher(func):
-        def decorator(*args, **kwargs):
-            # with settings(hide('warnings', 'running', 'stdout', 'stderr'),
-            #         warn_only=True):
-            with settings(warn_only=True):
-                result = run(pname)
-            if result.return_code == 127:
-                print(yellow("'%s' not installed; return code: '%s'" % (pname, result.return_code)))
-                return func(*args, **kwargs)
-            print(green("'%s' is already installed" % pname))
-        return decorator
-    return argcatcher
-
-def _if_installed(pname):
-    """Run if the given program name is installed.
-    """
-    def argcatcher(func):
-        def decorator(*args, **kwargs):
-            with settings(
-                    hide('warnings', 'running', 'stdout', 'stderr'),
-                    warn_only=True):
-                result = run(pname)
-            if result.return_code in [0, 1]: 
-                return func(*args, **kwargs)
-        return decorator
-    return argcatcher
-
-@contextmanager
-def _make_tmp_dir():
-    work_dir = os.path.join(env.tmp_dir, "tmp")
-    if not exists(work_dir):
-        sudo("mkdir %s" % work_dir)
-        sudo("chown %s %s" % (env.user, work_dir))
-    yield work_dir
-    if exists(work_dir):
-        sudo("rm -rf %s" % work_dir)
 
 # -- Fabric instructions
 
@@ -240,9 +194,9 @@ def configure_MI(galaxy=False, do_rebundle=False, euca=False):
     time_start = dt.datetime.utcnow()
     print(yellow("Configuring host '%s'. Start time: %s" % (env.hosts[0], time_start)))
     _add_hostname_to_hosts()
-    _amazon_ec2_environment(galaxy)
-    _update_system()
-    _required_packages()
+    apps_to_install = _get_apps_to_install()
+    _amazon_ec2_environment(galaxy='galaxy' in apps_to_install)
+    _install_packages(apps_to_install)
     _setup_users()
     _required_programs()
     _required_libraries()
@@ -257,6 +211,22 @@ def configure_MI(galaxy=False, do_rebundle=False, euca=False):
         reboot_if_needed = False
     if do_rebundle or confirm("Would you like to bundle this instance into a new machine image (note that this applies and was testtg only on EC2 instances)?"):
         rebundle(reboot_if_needed,euca)
+
+# == applications
+
+def _get_apps_to_install(yaml_file=None):
+    """ Pull a list of groups to install based on the application configuration YAML.
+        Reads 'applications.yaml' and returns a list of packages
+    """
+    if yaml_file is None:
+        yaml_file = os.path.join('conf_files', "apps.yaml")
+    with open(yaml_file) as in_handle:
+        full_data = yaml.load(in_handle)
+    print(yellow("Reading %s" % yaml_file))
+    applications = full_data['applications']
+    applications = applications if applications else []
+    print(yellow("Applications whose packages to install: {0}".format(", ".join(applications))))
+    return applications
 
 # == system
 
@@ -281,9 +251,11 @@ def _remove_hostname_from_hosts():
 def _update_system():
     """Runs standard system update"""
     _setup_sources()
-    sudo('apt-get -y update')
-    run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y --force-yes') # Ensure a completely noninteractive upgrade
-    sudo('apt-get -y dist-upgrade')
+    with settings(warn_only=True): # Some custom CBL sources don't always work so avoid a crash in that case
+        sudo('apt-get -y update')
+        run('export DEBIAN_FRONTEND=noninteractive; sudo -E apt-get upgrade -y --force-yes') # Ensure a completely noninteractive upgrade
+        sudo('apt-get -y dist-upgrade')
+    print(yellow("Done updating the system"))
 
 def _setup_sources():
     """Add sources for retrieving library packages."""
@@ -293,50 +265,31 @@ def _setup_sources():
 
 # == packages
 
-def _required_packages():
-    """Install needed packages using apt-get"""
+def _apt_packages(pkgs_to_install):
+    """Install packages available via apt-get.
+    """
+    _setup_apt_automation()
     # Disable prompts during install/upgrade of rabbitmq-server package
     sudo('echo "rabbitmq-server rabbitmq-server/upgrade_previous note" | debconf-set-selections')
-    # default packages required by CloudMan
-    packages = ['euca2ools', # required for bundling eucalyptus images
-                'stow',
-                'make',
-                'python-pip', # for installing python programs
-                'xfsprogs',
-                'unzip',
-                'gcc', # Required to compile nginx
-                'g++',
-                'nfs-kernel-server',
-                'zlib1g-dev',
-                'libssl-dev',
-                'libreadline5-dev',
-                'libpcre3-dev', # Required to compile nginx
-                'git-core', # Required to install boto from source
-                'rabbitmq-server'] # Required by CloudMan for communication between instances
-    # Additional packages required for Galaxy images
-    if env.galaxy_too:
-        packages += ['mercurial', 
-                    'subversion',
-                    'postgresql',
-                    'gfortran',
-                    'python-rpy',
-                    'openjdk-6-jdk',
-                    'libopenmpi-dev',
-                    'libopenmpi1.3',
-                    'openmpi-bin',
-                    'axel', # Parallel file download (used by Galaxy ObjectStore)
-                    'postgresql-server-dev-8.4', # required for compiling ProFTPd (must match installed PostgreSQL version!)
-                    'r-cran-qvalue', # required by Compute q-values
-                    'r-bioc-hilbertvis', # required by HVIS
-                    'tcl-dev', # required by various R modules
-                    'tk-dev', # required by various R modules
-                    'imagemagick', # required by RGalaxy
-                    'pdfjam', # required by RGalaxy
-                    'python-scipy', # required by RGalaxy
-                    'libsparsehash-dev', # Pull from outside (e.g., yaml file)?
-                    'xvfb' ] # required by R's pdf() output
-    for package in packages:
-        sudo("apt-get -y --force-yes install %s" % package)
+    print(yellow("Update and install all packages"))
+    _update_system() # Always update to ensure up-to-date mirrors
+    # A single line install is much faster - note that there is a max
+    # for the command line size, so we do 30 at a time
+    group_size = 30
+    i = 0
+    print(yellow("Updating %i packages" % len(pkgs_to_install)))
+    while i < len(pkgs_to_install):
+        sudo("apt-get -y --force-yes install %s" % " ".join(pkgs_to_install[i:i+group_size]))
+        i += group_size
+    sudo("apt-get clean")
+
+def _install_packages(apps_to_install):
+    """ Get a list of packages to install based on the conf file and initiate
+        installation of those via apt-get.
+    """
+    pkg_config_file = os.path.join('conf_files', "config.yaml")
+    pkgs_to_install, _ = _yaml_to_packages(pkg_config_file, apps_to_install)
+    _apt_packages(pkgs_to_install)
     print(green("----- Required system packages installed -----"))
 
 # == users
@@ -375,8 +328,9 @@ def _required_programs():
             append('/etc/bash.bashrc', e, use_sudo=True)
     # Install required programs
     _get_sge()
-    # _install_setuptools()
+    _install_setuptools()
     _install_nginx()
+    _install_s3fs()
     if env.galaxy_too:
         # _install_postgresql()
         _configure_postgresql()
@@ -400,8 +354,8 @@ def _get_sge():
         print(green("SGE already exists at '%s'" % install_dir))
 
 def _install_nginx():
-    version = "0.7.67"
-    upload_module_version = "2.0.12"
+    version = "1.2.0"
+    upload_module_version = "2.2.0"
     upload_url = "http://www.grid.net.ru/nginx/download/" \
                  "nginx_upload_module-%s.tar.gz" % upload_module_version
     url = "http://nginx.org/download/nginx-%s.tar.gz" % version
@@ -420,7 +374,9 @@ def _install_nginx():
             run("wget %s" % url)
             run("tar xvzf %s" % os.path.split(url)[1])
             with cd("nginx-%s" % version):
-                run("./configure --prefix=%s --with-ipv6 --add-module=../nginx_upload_module-%s --user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module" % (install_dir, upload_module_version))
+                run("./configure --prefix=%s --with-ipv6 --add-module=../nginx_upload_module-%s "
+                    "--user=galaxy --group=galaxy --with-http_ssl_module --with-http_gzip_static_module "
+                    "--with-cc-opt=-Wno-error --with-debug" % (install_dir, upload_module_version))
                 run("make")
                 sudo("make install")
                 with settings(warn_only=True):
@@ -437,11 +393,18 @@ def _install_nginx():
     with cd(remote_errdoc_dir):
         sudo('tar xvzf %s' % nginx_errdoc_file)
     
-    cloudman_default_dir = "/opt/galaxy/sbin"
+    cloudman_default_dir = "/opt/cloudman/sbin"
     sudo("mkdir -p %s" % cloudman_default_dir)
     if not exists("%s/nginx" % cloudman_default_dir):
         sudo("ln -s %s/sbin/nginx %s/nginx" % (install_dir, cloudman_default_dir))
     print(green("----- nginx installed and configured -----"))
+
+@_if_not_installed("s3fs")
+def _install_s3fs():
+    version = "1.61"
+    url = "http://s3fs.googlecode.com/files/s3fs-{0}.tar.gz".format(version)
+    _get_install(url, env, _configure_make, install_path=env.system_install)
+    print(green("----- s3fs %s installed -----" % version))
 
 @_if_not_installed("pg_ctl")
 def _install_postgresql():
@@ -471,7 +434,16 @@ def _configure_postgresql(delete_main_dbcluster=False):
     also has the effect of stopping the auto-start of the postmaster server at 
     machine boot. The method adds all of the PostgreSQL commands to the PATH.
     """
-    pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d' ' | cut -f1 -d'-' | cut -f1-2 -d'.'")
+    pg_ver = sudo("dpkg -s postgresql | grep Version | cut -f2 -d':'")
+    pg_ver = pg_ver.strip()[:3] # Get first 3 chars of the version since that's all that's used for dir name
+    got_ver = False
+    while(not got_ver):
+        try:
+            pg_ver = float(pg_ver)
+            got_ver = True
+        except Exception:
+            print(red("Problems trying to figure out PostgreSQL version."))
+            pg_ver = raw_input(red("Enter the correct one (eg, 9.1; not 9.1.3): "))
     if delete_main_dbcluster:
         sudo('pg_dropcluster --stop %s main' % pg_ver, user='postgres')
     exp = "export PATH=/usr/lib/postgresql/%s/bin:$PATH" % pg_ver
@@ -479,7 +451,7 @@ def _configure_postgresql(delete_main_dbcluster=False):
         append('/etc/bash.bashrc', exp, use_sudo=True)
     print(green("----- PostgreSQL configured -----"))
 
-# @_if_not_installed("easy_install")
+@_if_not_installed("easy_install")
 def _install_setuptools():
     version = "0.6c11"
     python_version = "2.6"
@@ -491,13 +463,14 @@ def _install_setuptools():
             print(green("----- setuptools installed -----"))
 
 def _install_proftpd():
-    version = "1.3.3d"
-    postgres_ver = "8.4"
-    url = "ftp://mirrors.ibiblio.org/proftpd/distrib/source/proftpd-%s.tar.gz" % version
+    version = "1.3.4a"
+    postgres_ver = "9.1"
+    url = "ftp://ftp.tpnet.pl/pub/linux/proftpd/distrib/source/proftpd-%s.tar.gz" % version
     install_dir = os.path.join(env.install_dir, 'proftpd')
     remote_conf_dir = os.path.join(install_dir, "etc")
     # skip install if already present
     if exists(remote_conf_dir):
+        print(green("ProFTPd seems to already be installed in {0}".format(install_dir)))
         return
     with _make_tmp_dir() as work_dir:
         with cd(work_dir):
@@ -505,25 +478,30 @@ def _install_proftpd():
             with settings(hide('stdout')):
                 run("tar xzf %s" % os.path.split(url)[1])
             with cd("proftpd-%s" % version):
-                run("CFLAGS='-I/usr/include/postgresql' ./configure --prefix=%s --disable-auth-file --disable-ncurses --disable-ident --disable-shadow --enable-openssl --with-modules=mod_sql:mod_sql_postgres:mod_sql_passwd --with-libraries=/usr/lib/postgres/%s/lib" % (install_dir, postgres_ver))
-                run("make")
+                run("CFLAGS='-I/usr/include/postgresql' ./configure --prefix=%s " \
+                    "--disable-auth-file --disable-ncurses --disable-ident --disable-shadow " \
+                    "--enable-openssl --with-modules=mod_sql:mod_sql_postgres:mod_sql_passwd " \
+                    "--with-libraries=/usr/lib/postgresql/%s/lib" % (install_dir, postgres_ver))
+                sudo("make")
                 sudo("make install")
                 sudo("make clean")
     # Get init.d startup script
-    proftp_initd_script = 'proftpd'
+    proftp_initd_script = 'proftpd.initd'
     local_proftp_initd_path = os.path.join('conf_files',proftp_initd_script)
-    remote_proftpd_initd_path = os.path.join('/etc/init.d',proftp_initd_script)
+    remote_proftpd_initd_path = '/etc/init.d/proftpd'
     _put_as_user(local_proftp_initd_path,remote_proftpd_initd_path, user='root')
     sudo('chmod 755 %s' % remote_proftpd_initd_path)
     # Get configuration files
     proftpd_conf_file = 'proftpd.conf'
     local_conf_path = os.path.join('conf_files',proftpd_conf_file)
-    remote_conf_path = os.path.join(remote_conf_dir,proftpd_conf_file) 
+    remote_conf_path = os.path.join(remote_conf_dir,proftpd_conf_file)
+    _put_as_user(local_conf_path,remote_conf_path, user='root')
+    sed(remote_conf_path, 'REPLACE_THIS_WITH_CUSTOM_INSTALL_DIR', install_dir, use_sudo=True) 
     welcome_msg_file = 'welcome_msg.txt'
     local_welcome_msg_path = os.path.join('conf_files',welcome_msg_file)
     remote_welcome_msg_path = os.path.join(remote_conf_dir, welcome_msg_file)
-    _put_as_user(local_conf_path,remote_conf_path, user='root')
     _put_as_user(local_welcome_msg_path,remote_welcome_msg_path, user='root')
+    # Stow
     sudo("cd %s; stow proftpd" % env.install_dir)
     print(green("----- ProFTPd %s installed to %s -----" % (version, install_dir)))
 
@@ -564,16 +542,14 @@ def _install_r_packages():
  
 def _required_libraries():
     """Install python libraries"""
-
     # Libraries to be be installed using easy_install
-    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob', 'boto']
+    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob', 'boto', 'oca']
     for library in libraries:
         sudo("pip install %s" % library)
     print(green("----- Required python libraries installed -----"))
 
     #euca-tools need boto version 1.9
     sudo('pip install -UIv http://pypi.python.org/packages/source/b/boto/boto-1.9b.tar.gz')
-
 
 # == environment
 
@@ -582,6 +558,7 @@ def _configure_environment():
     _configure_sge()
     _configure_nfs()
     _configure_bash()
+    _configure_logrotate()
     _save_image_conf_support()
     if env.galaxy_too:
         _configure_galaxy_env()
@@ -594,22 +571,11 @@ def _configure_ec2_autorun():
     # Create upstart configuration file for boot-time script
     cloudman_boot_file = 'cloudman.conf'
     with open( cloudman_boot_file, 'w' ) as f:
-        print >> f, cm_upstart % env.install_dir
+        print >> f, cm_upstart % (remote_ec2_autorun_path, os.path.splitext(remote_ec2_autorun_path)[0])
     remote_file = '/etc/init/%s' % cloudman_boot_file
     _put_as_user(cloudman_boot_file, remote_file, user='root')
     os.remove(cloudman_boot_file)
     print(green("----- ec2_autorun added to upstart -----"))
-    
-    # Create upstart configuration file for RabbitMQ
-    rabbitmq_server_conf = 'rabbitmq-server.conf'
-    with open( rabbitmq_server_conf, 'w' ) as f:
-        print >> f, rabitmq_upstart #% env.install_dir
-    remote_file = '/etc/init/%s' % rabbitmq_server_conf
-    _put_as_user(rabbitmq_server_conf, remote_file, user='root')
-    os.remove(rabbitmq_server_conf)
-    # Stop the init.d script
-    sudo('/usr/sbin/update-rc.d -f rabbitmq-server remove')
-    print(green("----- RabbitMQ added to upstart -----"))
 
 def _configure_sge():
     """This method only sets up the environment for SGE w/o actually setting up SGE"""
@@ -617,6 +583,14 @@ def _configure_sge():
     if not exists(sge_root):
         sudo("mkdir -p %s" % sge_root)
         sudo("chown sgeadmin:sgeadmin %s" % sge_root)
+    # In case /opt/galaxy dir does not exist, for backward compatibility create a symlink
+    opt_galaxy = '/opt/galaxy'
+    if os.path.split(env.install_dir)[0] == '/':
+        custom_install_dir = env.install_dir
+    else:
+        custom_install_dir = os.path.split(env.install_dir)[0]
+    if not exists(opt_galaxy):
+        sudo("ln --force -s %s %s" % (custom_install_dir, opt_galaxy))
 
 def _configure_galaxy_env():
     # Create .sge_request file in galaxy home. This will be needed for proper execution of SGE jobs
@@ -650,9 +624,25 @@ def _configure_nfs():
         if not contains(nfs_file, '/mnt/galaxyTools'):
             append(nfs_file, '/mnt/galaxyTools   *(rw,sync,no_root_squash,no_subtree_check)', use_sudo=True)
     print(green("NFS /etc/exports dir configured"))
+
 def _configure_bash():
     """Some convenience/preference settings"""
     append('/etc/bash.bashrc', ['alias lt=\"ls -ltr\"', 'alias mroe=more'], use_sudo=True)
+    
+    # Create a custom vimrc for the system
+    local_vimrc = os.path.join('conf_files', 'vimrc')
+    remote_vimrc = '/etc/vim/vimrc'
+    _put_as_user(local_vimrc, remote_vimrc, user='root')
+    print(green("----- Added a custom vimrc to {0} -----").format(remote_vimrc))
+
+def _configure_logrotate():
+    """
+    Add logrotate config file, which will automatically rotate CloudMan's log
+    """
+    lr_local = os.path.join('conf_files', "cloudman.logrotate")
+    lr_remote = '/etc/logrotate.d/cloudman'
+    _put_as_user(lr_local, lr_remote, user='root')
+    print(green("----- Added logrotate file to {0} -----").format(lr_remote))
 
 def _save_image_conf_support():
     """Save the type of image configuration performed to a file on the image
@@ -693,6 +683,60 @@ def _configure_xvfb():
 
 # == Machine image rebundling code
 
+def create_image(reboot_if_needed=False):
+    """ Create a new Image based on the instance provided by the -H parameter.
+        This method uses the boto 'create_image' API method.
+        Note that after completion, the Image ID is provided but it may take some
+        more time for the image to be availabel for use (this is a consequence of
+        the above mentioned method).
+        Also note that lately this has been a more reliable method for creating
+        Images than the rebundle method.
+        
+        :rtype: bool
+        :return: If instance was successfully rebundled and an Image ID was received,
+                 return True. False, otherwise.
+    """
+    _check_fabric_version()
+    time_start = dt.datetime.utcnow()
+    print "Rebundling instance '%s'. Start time: %s" % (env.hosts[0], time_start)
+    _amazon_ec2_environment()
+    instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
+    
+    # Handle reboot if required
+    if not _reboot(instance_id, reboot_if_needed):
+        return False # Indicates that rebundling was not completed and should be restarted
+    
+    if boto:
+        _clean() # Clean up the environment before rebundling
+        # Select appropriate region
+        availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
+        instance_region = availability_zone[:-1] # Truncate zone letter to get region name
+        ec2_conn = _get_ec2_conn(instance_region)
+        try:
+            print(yellow('galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")))
+            name, desc = _get_image_name()
+            image_id = ec2_conn.create_image(instance_id, name=name, description=desc)
+            
+            print(green("--------------------------"))
+            print(green("Creating the new machine image now. Image ID (AMI) will be: '%s'" % (image_id)))
+            print(yellow("Before this image can be used, the background process still needs to be completed."))
+            print(green("--------------------------"))
+            answer = confirm("Would you like to make this machine image public?", default=False)
+            if image_id and answer:
+                ec2_conn.modify_image_attribute(image_id, attribute='launchPermission', operation='add', groups=['all'])
+        except EC2ResponseError, e:
+            print(red("Error creating image: %s" % e))
+            return False
+    else:
+        print(red("Python boto library not available. Aborting."))
+        return False
+    time_end = dt.datetime.utcnow()
+    print "Duration of instance rebundling: %s" % str(time_end-time_start)
+    if image_id is not None:
+        return True
+    else:
+        return False
+
 def rebundle(reboot_if_needed=False, euca=False):
     """
     Rebundles the EC2 instance that is passed as the -H parameter
@@ -726,12 +770,13 @@ def _rebundle_by_bootable_ebs(reboot_if_needed=False):
         # Select appropriate region:
         availability_zone = run("curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone")
         instance_region = availability_zone[:-1] # Truncate zone letter to get region name
-        # TODO modify _get_ec2_conn to take the url parameters
         ec2_conn = _get_ec2_conn(instance_region)
-        vol_size = 15 # This will be the size (in GB) of the root partition of the new image
         
         # hostname = env.hosts[0] # -H flag to fab command sets this variable so get only 1st hostname
         instance_id = run("curl --silent http://169.254.169.254/latest/meta-data/instance-id")
+        
+        # Get the size (in GB) of the root partition for the new image
+        vol_size = _get_root_vol_size(ec2_conn, instance_id)
         
         # Handle reboot if required
         if not _reboot(instance_id, reboot_if_needed):
@@ -740,7 +785,7 @@ def _rebundle_by_bootable_ebs(reboot_if_needed=False):
         _clean() # Clean up the environment before rebundling
         image_id = None
         kernel_id = run("curl --silent http://169.254.169.254/latest/meta-data/kernel-id")
-        if instance_id and availability_zone and kernel_id:
+        if ec2_conn and instance_id and availability_zone and kernel_id:
             print "Rebundling instance with ID '%s' in region '%s'" % (instance_id, ec2_conn.region.name)
             try:
                 # Need 2 volumes - one for image (rsync) and the other for the snapshot (see instance-to-ebs-ami.sh)
@@ -802,8 +847,10 @@ def _rebundle_by_bootable_ebs(reboot_if_needed=False):
                     block_map[root_device_name] = ebs
                     block_map[ephemeral0_device_name] = ephemeral0
                     block_map[ephemeral1_device_name] = ephemeral1
-                    name = 'galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")
-                    image_id = ec2_conn.register_image(name, description=AMI_DESCRIPTION, architecture=arch, kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
+                    print(yellow('galaxy-cloudman-%s' % time_start.strftime("%Y-%m-%d")))
+                    name, desc = _get_image_name()
+                    image_id = ec2_conn.register_image(name, description=desc, architecture=arch,
+                        kernel_id=kernel_id, root_device_name=root_device_name, block_device_map=block_map)
                     answer = confirm("Volume with ID '%s' was created and used to make this AMI but is not longer needed. Would you like to delete it?" % vol.id)
                     if answer:
                         ec2_conn.delete_volume(vol.id)
@@ -869,7 +916,7 @@ def _rebundle_by_euca_tools(reboot_if_needed=False, euca=True):
         instance_region = availability_zone
     
     print(red("Instance region: %s" % (instance_region) ))
-    ec2_url = urlparse.urlparse(os.environ['EC2_URL'])
+    ec2_url = urlparse(os.environ['EC2_URL'])
     is_secure = False
     if (ec2_url.scheme == 'https'):
         is_secure = True
@@ -1004,7 +1051,7 @@ def _reboot(instance_id, force=False):
         if not force:
             answer = confirm("Before rebundling, instance '%s' needs to be rebooted. Reboot instance?" % instance_id)
         if force or answer:
-            wait_time = 35
+            wait_time = 60
             print "Rebooting instance with ID '%s' and waiting %s seconds" % (instance_id, wait_time)
             try:
                 reboot(wait_time)
@@ -1040,6 +1087,27 @@ def _reboot(instance_id, force=False):
             print(red("Cannot rebundle without instance reboot. Aborting rebundling."))
             return False
     return True # Default to OK
+
+def _get_image_name():
+    """ Prompt a user for a name for the new Image while ensuring the name is not
+        empty and that the user is happy with the input.
+    
+    :rtype: string
+    :return: Name of the Image as provided and confirmed by the user.
+    """
+    name_ok = False
+    while not name_ok:
+        name = raw_input("Enter a name for the new Image: ")
+        if confirm("You entered '{0}'. Is this OK?".format(name)) and name != '':
+            name_ok = True
+    desc = AMI_DESCRIPTION
+    print (yellow("Default image description: {0}".format(desc)))
+    desc_ok = False
+    while not desc_ok:
+        desc = raw_input("Enter a description for the new Image: ")
+        if confirm("You entered '{0}'. Is this OK?".format(desc)) and desc != '':
+            desc_ok = True
+    return name, desc
 
 def _get_device_list():
     devices = run('/bin/ls -1 /dev/[svh]d?')
@@ -1091,7 +1159,7 @@ def _attach( ec2_conn, instance_id, volume_id, device ):
         volumes = [ v for v in ec2_conn.get_all_volumes( volume_ids=(volume_id,) ) if v.id == volume_id ]
         volumestatus = volumes[0].attachment_state()
         time.sleep( 30 )
-    
+
     devices_after = _get_device_list()
     # print(green('Devices after attach: {0}'.format(','.join(devices_after))))
     new_devices = devices_after - devices_before
@@ -1167,25 +1235,56 @@ def _clean_rabbitmq_env():
 
 def _clean():
     """Clean up the image before rebundling"""
-    # Make sure RabbitMQ environment is clean
-    _clean_rabbitmq_env()
     # Stop Apache from starting automatically at boot (it conflicts with Galaxy's nginx)
     sudo('/usr/sbin/update-rc.d -f apache2 remove')
     # Cleanup some of the logging files that might get bundled into the image
     fnames = ["/root/.bash_history", "$HOME/.bash_history", "/var/log/firstboot.done", "$HOME/.nx_setup_done",
-              "/var/crash/*", "%s/ec2autorun.py.log" % env.install_dir]
+              "/var/crash/*", "%s/ec2autorun.log" % env.install_dir]
     for fname in fnames:
         if exists(fname):
             sudo("rm -f %s" % fname)
     rmdirs = ["/mnt/galaxyData", "/mnt/cm", "/tmp/cm"]
     for rmdir in rmdirs:
         sudo("rm -rf %s" % rmdir)
+    # Make sure RabbitMQ environment is clean
+    _clean_rabbitmq_env()
+    # Stop Apache from starting automatically at boot (it conflicts with Galaxy's nginx)
+    sudo('/usr/sbin/update-rc.d -f apache2 remove')
+    # Cleanup some of the logging files that might get bundled into the image
+    for cf in ['%s/ec2autorun.log' % env.install_dir, '/var/crash/*', '/var/log/firstboot.done', '$HOME/.nx_setup_done']:
+        if exists(cf):
+            sudo('rm -f %s' % cf)
     _remove_hostname_from_hosts()
 
-def _get_ec2_conn(instance_region='us-east-1'):
+def _get_root_vol_size(ec2_conn, instance_id):
+    print(yellow("Trying to discover the size of the current root volume"))
+    try:
+        f = {'attachment.instance-id': instance_id}
+        volumes = ec2_conn.get_all_volumes(filters=f)
+    except EC2ResponseError, e:
+        print(red("Error checking for attached volumes: {0}".format(e)))
+    size = 20 # The default size for the root partition
+    if len(volumes) == 1:
+        size = volumes[0].size
+    else:
+        print(red("Found more than 1 attached volume: {0}".format(volumes)))
+        size = raw_input("Enter the desired root volume size (in GB, just the whole number): ")
+        if not isinstance(size, int):
+            print(red("Wrong value provided ({0}); using the default of 20GB.".format(size)))
+            size = 20
+    print(yellow("Set the size of the new root volume to {0}GB".format(size)))
+    return size
 
-    # TODO fix AWS specific region information
-    regions = boto.ec2.regions()  
+def _get_ec2_conn(instance_region='us-east-1'):
+    try:
+        regions = boto.ec2.regions()
+    except boto.exception.NoAuthHandlerFound, e:
+        print(red("Credentials issue? %s\n\nTry setting the following in ~/.boto:\n \
+            [Credentials] \
+            aws_access_key_id = <your access key> \
+            aws_secret_access_key = <your secret key> \
+            " % e))
+        sys.exit(1)
     print "Found regions: %s; trying to match to instance region: %s" % (regions, instance_region)
     region = None
     for r in regions:
@@ -1196,7 +1295,7 @@ def _get_ec2_conn(instance_region='us-east-1'):
         print(red("ERROR discovering a region; try running this script again using 'rebundle' as the last argument."))
         return None
     try:
-        # TODO fix to detect, connect to euca as well 
+        # TODO fix to detect, connect to euca as well, although currently only Amazon-specific bundling code uses this method 
         ec2_conn = EC2Connection(region=region)
         return ec2_conn
     except EC2ResponseError, e:
