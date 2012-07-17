@@ -22,3 +22,4 @@ snaps.yaml
 mi_deployment.egg-info
 build
 dist
+lib
