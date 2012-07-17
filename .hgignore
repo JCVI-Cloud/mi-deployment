@@ -17,3 +17,8 @@ snaps.yaml
 
 #ignore .orig backups
 *.orig
+
+# setup.py artifactrs
+mi_deployment.egg-info
+build
+dist
