@@ -42,6 +42,7 @@ CDN_ROOT_URL = "http://userwww.service.emory.edu/~eafgan/content"
 EUCA_BUNDLE_PREFIX='cloudman'
 MOUNTPOINT_FOR_BUNDLE = '/mnt/ebs'
 DEFAULT_EUCA_CONFIG_DIR='{0}/.euca'.format(os.environ['HOME'])
+FUNCTIONAL_EUCA2OOLS_URL='https://github.com/razrichter/euca2ools/zipball/working_bundle_vol' # gets a .zip file (not .tar.gz)
 
 # REPO_ROOT_URL = "https://bitbucket.org/afgane/mi-deployment/raw/tip"
 
@@ -1005,11 +1006,20 @@ def _rebundle_by_euca_tools(reboot_if_needed=False, euca=True):
         if not euca_config_is_file:
             local('rm {0}'.format(euca_config))
             
-        #is it probably in something is it doing in previous methods ?
-        #problem here (22 login refused to instance if bundled via Fabric, no problem if bundled manually)
+        
+        # get and prep working euca2ools
+        new_euca_install_dir='/tmp'
+        euca_zip = '{0}/euca2ools.zip'.format(new_euca_install_dir)
+        run('wget {0} -O {1}'.format(FUNCTIONAL_EUCA2OOLS_URL, euca_zip))
+        with context_managers.cd('/tmp'):
+            unzip_out = run('unzip {0}'.format(euca_zip))
+            new_euca_base_dir = re.search(r'\S+-euca2ools-\S+',unzip_out).group(0)
+            new_euca_dir='{0}/{1}'.format(new_euca_install_dir,new_euca_base_dir)
+        
+        # actually bundle and upload
         image_prefix='{0}-{1}'.format(EUCA_BUNDLE_PREFIX,time_start.strftime('%Y%m%d.%H.%M.%S'))
-        with context_managers.prefix('source /tmp/eucarc/eucarc'):
-            sudo('euca-bundle-vol --ec2cert $EUCALYPTUS_CERT -c $EC2_CERT -k $EC2_PRIVATE_KEY --user $EC2_USER_ID -s 5000 -d /mnt/ebs -p {0} -e /mnt/ebs,/tmp,/proc,/etc/udev'.format(image_prefix))
+        with context_managers.prefix('source /tmp/eucarc/eucarc ; export PYTHONPATH={0}:$PYTHONPATH'.format(new_euca_dir)):
+            sudo('{0}bin/euca-bundle-vol --ec2cert $EUCALYPTUS_CERT -c $EC2_CERT -k $EC2_PRIVATE_KEY --user $EC2_USER_ID -s 5000 -d /mnt/ebs -p {1} -e /mnt/ebs,/tmp,/proc,/etc/udev'.format(new_euca_dir,image_prefix))
             run('euca-upload-bundle --config /tmp/eucarc/eucarc -m {0}/{1}.manifest.xml -b cloudman'.format(MOUNTPOINT_FOR_BUNDLE,image_prefix))
             image_id = run('euca-register --config /tmp/eucarc/eucarc cloudman/{0}.manifest.xml'.format(image_prefix))
         sudo('umount /mnt/ebs')
