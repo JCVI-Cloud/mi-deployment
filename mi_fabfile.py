@@ -549,9 +549,6 @@ def _required_libraries():
         sudo("pip install %s" % library)
     print(green("----- Required python libraries installed -----"))
 
-    #euca-tools need boto version 1.9
-    sudo('pip install -UIv http://pypi.python.org/packages/source/b/boto/boto-1.9b.tar.gz')
-
 # == environment
 
 def _configure_environment():
@@ -1019,7 +1016,7 @@ def _rebundle_by_euca_tools(reboot_if_needed=False, euca=True):
         # actually bundle and upload
         image_prefix='{0}-{1}'.format(EUCA_BUNDLE_PREFIX,time_start.strftime('%Y%m%d.%H.%M.%S'))
         with context_managers.prefix('source /tmp/eucarc/eucarc ; export PYTHONPATH={0}:$PYTHONPATH'.format(new_euca_dir)):
-            sudo('{0}bin/euca-bundle-vol --ec2cert $EUCALYPTUS_CERT -c $EC2_CERT -k $EC2_PRIVATE_KEY --user $EC2_USER_ID -s 5000 -d /mnt/ebs -p {1} -e /mnt/ebs,/tmp,/proc,/etc/udev'.format(new_euca_dir,image_prefix))
+            sudo('{0}bin/euca-bundle-vol --ec2cert $EUCALYPTUS_CERT -c $EC2_CERT -k $EC2_PRIVATE_KEY --user $EC2_USER_ID -s 5000 --destination /mnt/ebs -p {1} -e /mnt/ebs,/tmp,/proc,/etc/udev'.format(new_euca_dir,image_prefix))
             run('euca-upload-bundle --config /tmp/eucarc/eucarc -m {0}/{1}.manifest.xml -b cloudman'.format(MOUNTPOINT_FOR_BUNDLE,image_prefix))
             image_id = run('euca-register --config /tmp/eucarc/eucarc cloudman/{0}.manifest.xml'.format(image_prefix))
         sudo('umount /mnt/ebs')
@@ -1044,6 +1041,9 @@ def _rebundle_by_euca_tools(reboot_if_needed=False, euca=True):
         return True
     else:
         return False
+
+# euca volume attachment helpers
+
 
 def _reboot(instance_id, force=False):
     """
