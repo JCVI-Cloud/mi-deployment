@@ -544,9 +544,9 @@ def _install_r_packages():
 def _required_libraries():
     """Install python libraries"""
     # Libraries to be be installed using easy_install
-    libraries = ['simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob', 'boto', 'oca']
+    libraries = ['setuptools','simplejson', 'amqplib', 'pyyaml', 'mako', 'paste', 'routes', 'webhelpers', 'pastescript', 'webob', 'oca']
     for library in libraries:
-        sudo("pip install %s" % library)
+        sudo("pip install -U %s" % library)
     print(green("----- Required python libraries installed -----"))
 
 # == environment
