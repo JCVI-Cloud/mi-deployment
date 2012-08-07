@@ -329,7 +329,7 @@ def _required_programs():
             append('/etc/bash.bashrc', e, use_sudo=True)
     # Install required programs
     _get_sge()
-    _install_setuptools()
+    # _install_setuptools()
     _install_nginx()
     _install_s3fs()
     if env.galaxy_too:
