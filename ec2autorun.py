@@ -36,8 +36,8 @@ def _get_self_private_ip():
     self_private_ip = None
     for i in range(0, 5):
         try:
-            log.debug('Gathering instance private hostname, attempt %s' % i)
-            fp = urllib2.urlopen('http://169.254.169.254/latest/meta-data/local-hostname')
+            log.debug('Gathering instance private ip, attempt %s' % i)
+            fp = urllib2.urlopen('http://169.254.169.254/latest/meta-data/local-ipv4')
             self_private_ip = fp.read()
             fp.close()
             if self_private_ip:
@@ -46,16 +46,45 @@ def _get_self_private_ip():
             pass
     return self_private_ip
 
+def _get_self_private_hostname():
+    self_private_hostname = None
+    for i in range(0, 5):
+        try:
+            log.debug('Gathering instance private hostname, attempt %s' % i)
+            fp = urllib2.urlopen('http://169.254.169.254/latest/meta-data/local-hostname')
+            self_private_hostname = fp.read()
+            fp.close()
+            if self_private_hostname:
+                break
+        except IOError:
+            pass
+    return self_private_hostname
+
+def _is_ipv4(instr): # as taken from cloud-init
+    """ determine if input string is a ipv4 address. return boolean"""
+    toks = instr.split('.')
+    if len(toks) != 4:
+        return False
+    try:
+        toks = [x for x in toks if (int(x) < 256 and int(x) > 0)]
+    except:
+        return False
+    return (len(toks) == 4)    
+
+def _check_name_resolves(host):
+    dev_null=open('/dev/null','w')
+    host_not_found = subprocess.call( ('/bin/ping', '-c', '1', host), stdout=dev_null, stderr=dev_null) # only interested in return code
+    dev_null.close()
+    return not host_not_found
+
 def _add_hostname_to_hosts():
     """Adds the hostname to /etc/hosts, if it is not being assigned by DNS -- required for rabbitmq
     """
     hostname_file = open('/etc/hostname','r')
     hostname = hostname_file.readline().rstrip()
     private_ip = _get_self_private_ip()
-    dev_null = open('/dev/null','w')
-    host_not_found = subprocess.call(('/bin/ping','-c','1',hostname), stdout=dev_null, stderr=dev_null) # only interested in return code
-    dev_null.close()
-    if host_not_found:
+    host_found = _check_name_resolves(hostname)
+    if not host_found:
         stdout = TemporaryFile()
         stderr = TemporaryFile()
         err = subprocess.call( ('/usr/bin/sudo','/usr/bin/perl', '-i.orig',  '-n','-e', r"""BEGIN {($h,$ip)=@ARGV;
@@ -73,6 +102,26 @@ def _add_hostname_to_hosts():
             raise OSError('Error updating /etc/hosts. Result code: {0}\n{1}\n{2}'.format( err,out,err_text ))
         stdout.close()
         stderr.close()
+
+def _fix_hostname():
+    """Checks that the hostname matches the private hostname from metadata, and updates /etc/hostname and /etc/hosts if
+    it does not, and the hostname does not resolve"""
+    hostname_file = open('/etc/hostname','r')
+    hostname = hostname_file.readline().rstrip()
+    hostname_file.close()
+    if not _check_name_resolves(hostname):
+        log.warning('Hostname "%s" does not resolve. Resetting hostname' % (hostname,))
+        new_hostname=_get_self_private_hostname()
+        if _is_ipv4(new_hostname):
+            new_hostname = "ip-%s" % new_hostname.replace(".", "-")
+        log.warning('New hostname = %s' % (new_hostname,))
+        hostname_file=open('/etc/hostname','w')
+        hostname_file.write('%s\n' % (new_hostname,) )
+        hostname_file.close()
+        _add_hostname_to_hosts()
+        err = subprocess.call(['hostname',new_hostname])
+        if err:
+            log.warn("running 'hostname failed: error %d" % (err) ) 
 
 def _setup_logging():
     # Logging setup
@@ -545,7 +594,7 @@ def main():
     log = _setup_logging()
     ud = _get_user_data()
     if ud:
-        _add_hostname_to_hosts() # make sure this is done on first boot
+        _fix_hostname() # make sure this is done on first boot
         _install_new_boto()
         _parse_user_data(ud)
         log.info("---> %s done <---" % sys.argv[0])

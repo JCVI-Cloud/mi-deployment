@@ -246,7 +246,7 @@ def _add_hostname_to_hosts():
 def _remove_hostname_from_hosts():
     """Removes the hostname from /etc/hosts. Part of cleaning the system"""
     hostname=run('cat /etc/hostname')
-    sudo("grep -v {0} /etc/hosts > /tmp/hosts && mv /tmp/hosts /etc/hosts".format(hostname))
+    sudo(r"grep -vP '\b{0}\b' /etc/hosts > /tmp/hosts && mv /tmp/hosts /etc/hosts".format(hostname))
 
 
 def _update_system():
