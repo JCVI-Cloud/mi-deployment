@@ -181,6 +181,18 @@ def _isurl(path):
     scheme, netloc, upath, uparams, uquery, ufrag = urlparse(path)
     return bool(scheme and netloc)
 
+def _get_cloud_type(ud):
+    if not ud:
+        ud = {}
+    cloud_type = 'ec2' # default to Amazon EC2
+    # s3 paths including 'Walrus' are going to be eucalyptus
+    if ('s3_url' in ud and 'Walrus' in ud['s3_url']) or ('s3_conn_path' in ud and 'Walrus' in ud['s3_conn_path']):
+        cloud_type = 'eucalyptus'
+    elif '.novalocal' in _get_self_private_hostname():
+        cloud_type = 'openstack'
+    # TODO add guesses for other cloud types
+    return cloud_type
+
 def _get_s3_conn(ud):
     access_key = ud['access_key']
     secret_key = ud['secret_key']
@@ -200,7 +212,7 @@ def _get_s3_conn(ud):
         # create an s3 connection using the info from their user data
         log.debug('Establishing boto S3 connection to a custom Object Store')
         host=ud.get('s3_host', '')
-        port=ud.get('s3_port', 8888)
+        port=ud.get('s3_port', 8888) # TODO - determine what correct values would be for what cloud types -- e.g. Eucalyptus = 8773, and openstack = 
         path=ud.get('s3_conn_path', '/')
         is_secure=ud.get('is_secure', True)
     calling_format=OrdinaryCallingFormat()
@@ -496,6 +508,31 @@ def _handle_yaml(user_data):
         _handle_freenx(ud["freenxpass"])
         if len(ud) == 1:
             return _handle_empty()
+    # If passed S3_URL and/or EC2_URL, split them into component pieces
+    if 's3_url' in ud: # override the S3 host to e.g. Eucalyptus
+        url = urlparse(ud['s3_url'])
+        ud['s3_host'] = url.hostname
+        ud['s3_port'] = url.port
+        ud['s3_conn_path']= url.path
+        if url.scheme == 'https':
+            ud['is_secure'] = True
+        else:
+            ud['is_secure'] = False
+            
+    if 'ec2_url' in ud:
+        url = urlparse(ud['ec2_url'])
+        ud['ec2_host'] = url.hostname
+        ud['ec2_port'] = url.port
+        ud['ec2_conn_path'] = url.path
+        if url.scheme == 'https':
+            ud['ec2_is_secure'] = True
+        else:
+            ud['ec2_is_secure'] = False
+    
+    if 'cloud_type' not in ud:
+        ud['cloud_type'] = _guess_cloud_type(ud)
+
+    
     # Create a YAML file from user data and store it as USER_DATA_FILE
     # This code simply ensures fields required by CloudMan are in the 
     # created file. Any other fields that might be included as user data
