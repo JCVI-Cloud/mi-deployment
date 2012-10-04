@@ -181,7 +181,7 @@ def _isurl(path):
     scheme, netloc, upath, uparams, uquery, ufrag = urlparse(path)
     return bool(scheme and netloc)
 
-def _get_cloud_type(ud):
+def _guess_cloud_type(ud):
     if not ud:
         ud = {}
     cloud_type = 'ec2' # default to Amazon EC2
