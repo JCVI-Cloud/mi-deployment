@@ -1165,10 +1165,9 @@ def _attach( ec2_conn, instance_id, volume_id, device ):
         if counter == 29:
             print(red("Volume '%s' FAILED to attach to instance '%s' as device '%s'. Aborting." % ( volume_id, instance_id, device )))
             return False
-        
-        volumes = [ v for v in ec2_conn.get_all_volumes( volume_ids=(volume_id,) ) if v.id == volume_id ]
-        volumestatus = volumes[0].attachment_state()
         time.sleep( 30 )
+        vol.update()
+        volumestatus = vol.attachment_state()
 
     devices_after = _get_device_list()
     # print(green('Devices after attach: {0}'.format(','.join(devices_after))))
