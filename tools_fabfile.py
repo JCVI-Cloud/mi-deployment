@@ -512,6 +512,7 @@ def _install_velvet():
             run("wget %s" % url)
             run("tar -xvzf %s" % os.path.split(url)[-1])
             with cd("velvet_%s" % version):
+                run(r"""perl -i.orig -p -e 's/^(.*)\$\(LDFLAGS\)(.*$)/$1 $2 \$\(LDFLAGS\)/' Makefile""") # velvetg won't link on precise unless -lm comes after the object files
                 run("make")
                 for fname in run("find -perm -100 -name 'velvet*'").split("\n"):
                     with settings(warn_only=True):
@@ -771,6 +772,7 @@ def _install_lastz():
             run("tar -xvzf %s" % os.path.split(url)[-1])
             with cd('lastz-distrib-%s' % version):
                 run("sed -i -e 's/GCC_VERSION == 40302/GCC_VERSION >= 40302/' src/quantum.c")
+                run(r"sed -i -e 's/-Werror //' src/Makefile") # lastz.c defines 3 variables it doesn't use, and -Werror breaks the build
                 run("make")
                 install_cmd("make LASTZ_INSTALL=%s install" % install_dir)
     sudo("echo 'PATH=%s:$PATH' > %s/env.sh" % (install_dir, install_dir))
